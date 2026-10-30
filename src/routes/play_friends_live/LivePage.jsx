@@ -16,6 +16,10 @@ function LiveGamePage() {
   const [isRunning, setIsRunning] = useState("?"); //if the state of the game was still in the running points
   const [diceValue, setDiceValue] = useState(0);
   const [currentPlayer, setCurrentPlayer] = useState(0);
+  const [gameId, setGameId] = useState(null); // id of the game stored on the server
+  const [winnerId, setWinnerId] = useState(null); // set by the server when someone reaches the target
+  const [isBusy, setIsBusy] = useState(false); // true while an API request is in flight
+  const [apiError, setApiError] = useState(null); // last ApiError, shown by <ApiErrorBanner />
   
   return (
     <>
@@ -49,7 +53,15 @@ function LiveGamePage() {
             setIsGameOver,
             isGameOver,
             isContinue,
-            setIsContinue
+            setIsContinue,
+            gameId,
+            setGameId,
+            winnerId,
+            setWinnerId,
+            isBusy,
+            setIsBusy,
+            apiError,
+            setApiError,
           }}
         >
           <Outlet />
