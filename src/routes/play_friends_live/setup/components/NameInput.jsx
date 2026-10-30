@@ -39,6 +39,7 @@ export default function NameInput({ player,index }) {
         value={player.name}
         onChange={handleChange}
         placeholder="Enter Name"
+        maxLength={20}
         className="text-lg font-medium text-center bg-transparent w-full p-0.5  border-b border-b-[#FFFFFF40]  "
       />
       <div className="group relative">
