@@ -25,6 +25,9 @@ export default function useGameActions() {
     setWinnerId,
     setIsBusy,
     setApiError,
+    setGameMeta,
+    setFeedback,
+    setLastEvent,
   } = useLiveGameContext();
 
   const addPlayerAudio = useAudio(addPlayerSound);
@@ -33,6 +36,22 @@ export default function useGameActions() {
   const gameOverTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(gameOverTimer.current), []);
+
+  // What other parts of the UI listen to (Member 3: sounds and screen reader text).
+  // Every event gets a new id so the same kind of event twice in a row is still noticed.
+  function emit(event) {
+    setLastEvent({ id: `${Date.now()}-${Math.random()}`, ...event });
+  }
+
+  // A short message on screen. type is "info" | "good" | "bad".
+  function say(type, text) {
+    setFeedback({ id: `${Date.now()}-${Math.random()}`, type, text });
+  }
+
+  function nameOf(playerId) {
+    const p = playerData.find((player) => player.id === playerId);
+    return p ? p.name || p.tag : "Player";
+  }
 
   // Runs one API call with shared loading + error handling.
   // Returns the response, or null if it failed (the error is then in context).
@@ -74,9 +93,22 @@ export default function useGameActions() {
         id: serverPlayer.id,
         running_points: serverPlayer.running_points,
         total_points: serverPlayer.total_points,
+        double_down_used: serverPlayer.double_down_used,
       }))
     );
     setCurrentPlayer(game.current_player_index);
+    // The server decides what is allowed. The screen only shows it.
+    setGameMeta({
+      doubleDownActive: game.double_down_active,
+      turnMultiplier: game.turn_multiplier,
+      bankUnlockIn: game.bank_unlock_in,
+      rollsThisTurn: game.rolls_this_turn,
+      allowed: {
+        roll: game.allowed.roll,
+        bank: game.allowed.bank,
+        doubleDown: game.allowed.double_down,
+      },
+    });
   }
 
   // Setup screen: create the game on the server. Returns true on success.
@@ -92,6 +124,8 @@ export default function useGameActions() {
     clearTimeout(gameOverTimer.current);
     setGameId(result.game.id);
     setWinnerId(null);
+    setFeedback(null);
+    setLastEvent(null);
     setDiceValue(0);
     setIsGameOver(false);
     syncGame(result.game);
@@ -108,9 +142,32 @@ export default function useGameActions() {
 
   // Reveal the outcome of a roll once the animation has ended.
   function showRollResult({ roll: rolled, game }) {
+    const name = nameOf(rolled.player_id);
     syncGame(game);
     setDiceValue(rolled.value);
-    if (rolled.outcome === "bust") loseAudio?.play();
+    const roller = game.players.find((p) => p.id === rolled.player_id);
+    emit({
+      type: "roll",
+      player_id: rolled.player_id,
+      value: rolled.value,
+      outcome: rolled.outcome,
+      turn_total: roller ? roller.running_points : 0,
+      multiplier: rolled.multiplier,
+      penalty_applied: rolled.penalty_applied,
+    });
+    if (rolled.outcome === "bust") {
+      loseAudio?.play();
+      if (rolled.multiplier > 1) {
+        say(
+          "bad",
+          rolled.penalty_applied > 0
+            ? `${name} rolled a 1 under Double Down: turn points lost and ${rolled.penalty_applied} taken from their total.`
+            : `${name} rolled a 1 under Double Down: turn points lost. Nothing to take from their total.`
+        );
+      } else {
+        say("bad", `${name} rolled a 1 and lost their turn points.`);
+      }
+    }
     if (rolled.outcome === "win") {
       setWinnerId(game.winner_id);
       gameOverTimer.current = setTimeout(() => {
@@ -125,9 +182,30 @@ export default function useGameActions() {
     if (!requireGame()) return;
     const result = await run(() => gameApi.bankPoints(gameId));
     if (!result) return;
+    const { bank: banked, game } = result;
+    const name = nameOf(banked.player_id);
     addPlayerAudio?.play();
-    syncGame(result.game);
+    syncGame(game);
+    emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked, multiplier: banked.multiplier });
+    if (banked.points_banked === 0) say("info", `${name} passed the turn.`);
+    else if (banked.multiplier > 1) say("good", `${name} banked ${banked.points_banked} (Double Down x${banked.multiplier}).`);
+    else say("good", `${name} banked ${banked.points_banked}.`);
   }
 
-  return { startGame, roll, showRollResult, bank, isBusy };
+  // Double Down button: declare before the first roll of a turn.
+  // The server checks the rules; if it says no, the error banner shows its message.
+  async function declareDoubleDown() {
+    if (!requireGame()) return;
+    const result = await run(() => gameApi.doubleDown(gameId));
+    if (!result) return;
+    const { double_down: dd, game } = result;
+    syncGame(game);
+    emit({ type: "double_down_declared", player_id: dd.player_id, multiplier: dd.multiplier, min_rolls: dd.min_rolls, penalty: dd.penalty });
+    say(
+      "info",
+      `${nameOf(dd.player_id)} declared Double Down: roll at least ${dd.min_rolls} times before banking. Banked points count x${dd.multiplier}, but a 1 also costs ${dd.penalty} points.`
+    );
+  }
+
+  return { startGame, roll, showRollResult, bank, declareDoubleDown, isBusy };
 }
