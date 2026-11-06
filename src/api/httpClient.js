@@ -54,3 +54,5 @@ export const getGame = (gameId) => request("GET", `/games/${encodeURIComponent(g
 export const rollDice = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/roll`);
 
 export const bankPoints = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/bank`);
+
+export const doubleDown = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/double-down`);

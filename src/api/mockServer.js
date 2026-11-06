@@ -14,6 +14,9 @@ const LATENCY_MS = 350; // fake network delay so loading states are visible
 const FAILURE_RATE = 0; // set to e.g. 0.2 to test error handling
 const STORAGE_KEY = "greedy-pig-mock-games";
 
+// Double Down rules (group plan). The real server keeps these in one place too.
+const RULES = { ddMultiplier: 2, ddMinRolls: 3, ddPenalty: 5 };
+
 const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 20, maxPigIndex: 28 };
 
 // ---- storage (in memory, mirrored to localStorage so a refresh keeps the game)
@@ -37,8 +40,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const newId = () => crypto.randomUUID();
 
+// TEST ONLY: queue the next dice values so tests can replay a known game.
+// The real server has nothing like this.
+let queuedRolls = [];
+export function _queueRolls(values) {
+  queuedRolls = [...values];
+}
+
 // Server-side dice. Uses crypto, not Math.random(), so it cannot be predicted.
 function rollOneDie() {
+  if (queuedRolls.length) return queuedRolls.shift();
   const buf = new Uint32Array(1);
   let n;
   do {
@@ -92,38 +103,68 @@ function validateCreate({ players, targetScore }) {
 function nextPlayer(game) {
   game.current_player_index = (game.current_player_index + 1) % game.players.length;
   game.turn_number += 1;
+  game.rolls_this_turn = 0;
+  game.double_down_active = false;
+}
+
+// Works out what the current player may do, so the UI never has to guess.
+function refreshDerived(game) {
+  const player = game.players[game.current_player_index];
+  const open = game.status === "in_progress";
+  game.turn_multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
+  game.bank_unlock_in = game.double_down_active
+    ? Math.max(0, RULES.ddMinRolls - game.rolls_this_turn)
+    : 0;
+  game.allowed = {
+    roll: open,
+    bank: open && game.bank_unlock_in === 0,
+    double_down: open && !player.double_down_used && !game.double_down_active && game.rolls_this_turn === 0,
+  };
 }
 
 function applyRoll(game, value) {
   const player = game.players[game.current_player_index];
+  const multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
+  game.rolls_this_turn += 1;
   game.last_roll = { value, player_id: player.id };
 
   if (value === 1) {
     // Bust: lose the unbanked running points, turn passes.
     player.running_points = 0;
+    // Double Down: a 1 also costs points from the banked total, never below 0.
+    let penalty = 0;
+    if (multiplier > 1) {
+      penalty = Math.min(RULES.ddPenalty, player.total_points);
+      player.total_points -= penalty;
+    }
     nextPlayer(game);
-    return "bust";
+    return { outcome: "bust", multiplier, penalty_applied: penalty };
   }
 
   player.running_points += value;
 
   // Reaching the target ends the game immediately, no need to bank first.
-  if (player.total_points + player.running_points >= game.target_score) {
-    player.total_points += player.running_points;
+  // Under Double Down the turn points count double towards the target.
+  const worth = player.running_points * multiplier;
+  if (player.total_points + worth >= game.target_score) {
+    player.total_points += worth;
     player.running_points = 0;
     game.status = "finished";
     game.winner_id = player.id;
-    return "win";
+    return { outcome: "win", multiplier, penalty_applied: 0 };
   }
-  return "continue";
+  return { outcome: "continue", multiplier, penalty_applied: 0 };
 }
 
 function applyBank(game) {
   // Banking with 0 running points is allowed (it just passes the turn), same as the base game.
   const player = game.players[game.current_player_index];
-  player.total_points += player.running_points;
+  const multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
+  const pointsBanked = player.running_points * multiplier;
+  player.total_points += pointsBanked;
   player.running_points = 0;
   nextPlayer(game);
+  return { player_id: player.id, points_banked: pointsBanked, multiplier };
 }
 
 // ---- public API (same signatures as httpClient.js)
@@ -138,6 +179,11 @@ export async function createGame({ players, targetScore }) {
     target_score: targetScore,
     current_player_index: 0,
     turn_number: 1,
+    rolls_this_turn: 0,
+    double_down_active: false,
+    turn_multiplier: 1,
+    bank_unlock_in: 0,
+    allowed: null, // filled in by refreshDerived below
     last_roll: null,
     winner_id: null,
     players: players.map((p) => ({
@@ -146,10 +192,12 @@ export async function createGame({ players, targetScore }) {
       pig_index: p.pig_index,
       running_points: 0,
       total_points: 0,
+      double_down_used: false,
     })),
     created_at: now,
     updated_at: now,
   };
+  refreshDerived(game);
   games.set(game.id, game);
   persist();
   return { game: clone(game) };
@@ -166,18 +214,59 @@ export async function rollDice(gameId) {
   assertInProgress(game);
   const value = rollOneDie();
   const rollerId = game.players[game.current_player_index].id;
-  const outcome = applyRoll(game, value); // "continue" | "bust" | "win"
+  const result = applyRoll(game, value); // { outcome, multiplier, penalty_applied }
+  refreshDerived(game);
   game.updated_at = new Date().toISOString();
   persist();
-  return { roll: { value, outcome, player_id: rollerId }, game: clone(game) };
+  return { roll: { value, player_id: rollerId, ...result }, game: clone(game) };
 }
 
 export async function bankPoints(gameId) {
   await simulateNetwork();
   const game = getOrThrow(gameId);
   assertInProgress(game);
-  applyBank(game);
+  if (game.bank_unlock_in > 0) {
+    const n = game.bank_unlock_in;
+    throw new ApiError({
+      status: 409,
+      code: "BANK_LOCKED",
+      message: `Double Down is active: roll ${n} more time${n === 1 ? "" : "s"} before banking`,
+    });
+  }
+  const bank = applyBank(game);
+  refreshDerived(game);
   game.updated_at = new Date().toISOString();
   persist();
-  return { game: clone(game) };
+  return { bank, game: clone(game) };
+}
+
+export async function doubleDown(gameId) {
+  await simulateNetwork();
+  const game = getOrThrow(gameId);
+  assertInProgress(game);
+  const player = game.players[game.current_player_index];
+  if (player.double_down_used) {
+    throw new ApiError({ status: 409, code: "DOUBLE_DOWN_USED", message: "Double Down already used" });
+  }
+  if (game.double_down_active || game.rolls_this_turn > 0) {
+    throw new ApiError({
+      status: 409,
+      code: "DOUBLE_DOWN_TOO_LATE",
+      message: "Declare Double Down before your first roll of the turn",
+    });
+  }
+  player.double_down_used = true;
+  game.double_down_active = true;
+  refreshDerived(game);
+  game.updated_at = new Date().toISOString();
+  persist();
+  return {
+    double_down: {
+      player_id: player.id,
+      multiplier: RULES.ddMultiplier,
+      min_rolls: RULES.ddMinRolls,
+      penalty: RULES.ddPenalty,
+    },
+    game: clone(game),
+  };
 }
