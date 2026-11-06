@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import { pool } from "./db.js";
+import { handleError } from "./errors.js";
 
 const app = express();
 
@@ -19,14 +20,13 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+
 // Anything not matched above
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
-// Safety net so the server never crashes on an unexpected error
-app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ error: "Something went wrong on the server" });
-});
+
+
+app.use(handleError); 
 
 app.listen(process.env.PORT || 3000, () =>
   console.log("API running on port", process.env.PORT || 3000)
