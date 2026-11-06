@@ -1,4 +1,4 @@
-# Greedy Pig API Contract (DRAFT v0.2: adds Double Down)
+# Greedy Pig API Contract (DRAFT v0.3: Double Down + schema mapping)
 
 Maintained by Member 2 (frontend) for Member 1 (backend) to review and correct. The frontend is already coded
 against this through `src/api/mockServer.js`, so any change should be made in both places.
@@ -50,7 +50,7 @@ player fields (`running_points`, `total_points`, `pig_index`).
 | `players[].double_down_used` | true once that player has declared Double Down in this game (one use per game) |
 | `last_roll` | `null` until the first roll |
 | `winner_id` | `null` until `status` is `finished` |
-| `name` | may be an empty string. The UI then shows a pig nickname. Server stores what it is given (trimmed). |
+| `name` | 1 to 30 characters, never empty (the frontend sends the pig nickname when the player leaves the box blank) |
 | `pig_index` | which pig picture. The server stores only the number; the client maps it to an image. |
 
 `allowed` is computed by the server after every action:
@@ -67,7 +67,7 @@ The endpoints still **enforce** these rules and return errors. `allowed` only sa
 ### 1. `POST /games`: create a game
 Request:
 ```json
-{ "players": [ { "name": "Ada", "pig_index": 0 }, { "name": "", "pig_index": 1 } ], "target_score": 100 }
+{ "players": [ { "name": "Ada", "pig_index": 0 }, { "name": "Bacon", "pig_index": 1 } ], "target_score": 100 }
 ```
 Response `201`: `{ "game": <Game> }`
 
@@ -135,7 +135,7 @@ Response `200`:
 | Field | Rule |
 |---|---|
 | `players` | array of 2 to 8 |
-| `players[].name` | string, at most 20 characters after trim (empty allowed) |
+| `players[].name` | string, 1 to 30 characters after trim (blank is rejected). The UI itself limits typing to 20. |
 | `players[].pig_index` | integer 0 to 28 |
 | `target_score` | integer 25 to 1000 |
 
@@ -159,6 +159,36 @@ Every error has the same shape:
 
 The client adds one more code itself, `NETWORK_ERROR` (status 0), when the server cannot be reached or times out.
 
+## Mapping to Member 1's database schema
+
+The JSON above is the contract, so the API should **serialize** database rows into it (the screen never sees column names).
+
+| Contract field | Database |
+|---|---|
+| `game.id` | `games.id` |
+| `game.status` | `games.status` (`IN_PROGRESS` / `FINISHED`). The frontend does not read it, so either letter case is fine. |
+| `game.target_score` | `games.target_score` |
+| `game.current_player_index` | `games.current_seat` |
+| `game.winner_id` | `games.winner_player_id` |
+| `game.players[]` | `game_players` **ordered by `seat`** (the screen matches players by position) |
+| `players[].id` | `game_players.id` |
+| `players[].name` | `game_players.display_name` |
+| `players[].total_points` | `game_players.total_score` |
+| `players[].running_points` | `game_players.turn_score` |
+| `players[].double_down_used` | `game_players.double_down_used` |
+| `game.rolls_this_turn` | current seat's `game_players.rolls_this_turn` |
+| `game.double_down_active` | current seat's `game_players.double_down_active` |
+| `game.turn_multiplier`, `game.bank_unlock_in`, `game.allowed` | computed from the rows above (not stored) |
+| `players[].pig_index` | not in the schema. The frontend does not need it back, so it can be dropped from responses, or add `game_players.pig_index` if you want avatars restored on resume. |
+| `game.turn_number`, `game.last_roll`, `created_at`, `updated_at` | not read by the frontend. Optional. |
+
+Notes for the server:
+- **Clamp the Double Down penalty.** `total_score` has `CHECK (total_score >= 0)`, so use `GREATEST(total_score - 5, 0)` and report the amount actually taken as `penalty_applied`. A plain subtraction would crash with a database error.
+- **Clear the turn flags whenever a turn ends** (bank or bust): `rolls_this_turn = 0`, `double_down_active = false`, `turn_score = 0`.
+- **Lock the game row** inside each action (`SELECT ... FOR UPDATE` in a transaction) so a double click cannot roll or bank twice.
+- **`turns` rows for stats:** `double_down = true` with outcome `BANKED` counts as a Double Down won, and `BUSTED` as a Double Down busted (Member 4's stats line).
+- **Finishing:** the roll that reaches the target sets `status = FINISHED` and `winner_player_id` (the screen needs `winner_id` straight away). `POST /games/:id/finish` should then write `results` from the database only (no request body), refuse if the game is not `FINISHED`, and be safe to call twice (your `UNIQUE (game_id, game_player_id)` already handles that).
+
 ## CORS and config
 - Backend must allow the deployed frontend origin (and `http://localhost:5173` for dev).
 - Frontend reads `VITE_API_URL` (backend origin, no trailing slash) and `VITE_USE_MOCK=false` in production.
@@ -171,4 +201,4 @@ The client adds one more code itself, `NETWORK_ERROR` (status 0), when the serve
 1. **Win check under Double Down.** This draft counts `running_points * 2` toward the target (so the reward is consistent). Confirm, or tell us if the win check should use the raw turn points.
 2. **Penalty value.** 5 for now, kept in one constant so it can drop to 3 after playtesting.
 3. **Who may act on a game?** Right now anyone with the game id can roll or bank. Fine for pass-and-play on one device.
-4. **Database ids.** The draft assumes UUID strings.
+4. **Who calls `/finish`?** Either the roll that wins calls it internally, or the frontend calls it once after a win. Please pick one and tell Member 4 and me, otherwise no result gets saved.

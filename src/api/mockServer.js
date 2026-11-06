@@ -17,7 +17,7 @@ const STORAGE_KEY = "greedy-pig-mock-games";
 // Double Down rules (group plan). The real server keeps these in one place too.
 const RULES = { ddMultiplier: 2, ddMinRolls: 3, ddPenalty: 5 };
 
-const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 20, maxPigIndex: 28 };
+const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 30, maxPigIndex: 28 };
 
 // ---- storage (in memory, mirrored to localStorage so a refresh keeps the game)
 const games = new Map();
@@ -85,7 +85,8 @@ function validateCreate({ players, targetScore }) {
   } else {
     players.forEach((p, i) => {
       const name = typeof p?.name === "string" ? p.name.trim() : null;
-      if (name === null || name.length > LIMITS.maxName) fields[`players[${i}].name`] = `Name must be at most ${LIMITS.maxName} characters`;
+      if (name === null || name.length < 1 || name.length > LIMITS.maxName)
+        fields[`players[${i}].name`] = `Name must be 1 to ${LIMITS.maxName} characters`;
       if (!Number.isInteger(p?.pig_index) || p.pig_index < 0 || p.pig_index > LIMITS.maxPigIndex)
         fields[`players[${i}].pig_index`] = `pig_index must be a whole number from 0 to ${LIMITS.maxPigIndex}`;
     });
