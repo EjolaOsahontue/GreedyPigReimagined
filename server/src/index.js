@@ -1,0 +1,33 @@
+import express from "express";
+import cors from "cors";
+import "dotenv/config";
+import { pool } from "./db.js";
+
+const app = express();
+
+const allowed = (process.env.FRONTEND_URL || "").split(",");
+app.use(cors({ origin: allowed }));
+app.use(express.json());
+
+app.get("/api/health", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT NOW() AS time");
+    res.json({ status: "ok", dbTime: rows[0].time });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database connection failed" });
+  }
+});
+
+// Anything not matched above
+app.use((req, res) => res.status(404).json({ error: "Route not found" }));
+
+// Safety net so the server never crashes on an unexpected error
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: "Something went wrong on the server" });
+});
+
+app.listen(process.env.PORT || 3000, () =>
+  console.log("API running on port", process.env.PORT || 3000)
+);
