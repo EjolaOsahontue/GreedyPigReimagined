@@ -6,8 +6,17 @@ export const pool = new pg.Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Handle database connection errors
-pool.on("error", (err) => {
-  console.error("Unexpected database error:", err);
-});
-
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {}); // ignore rollback errors
+    throw err;
+  } finally {
+    client.release();
+  }
+}
