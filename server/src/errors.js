@@ -7,6 +7,10 @@ export class AppError extends Error {
     }
 }
 
+export const gameNotFound = () => new AppError(404, "GAME_NOT_FOUND", "Game not found");
+export const gameFinished = () =>
+  new AppError(409, "GAME_FINISHED", "This game is already finished");
+
 export function handleError(err, req, res, next) {
   if (err instanceof AppError) {
     const errbody = {code: err.code, message: err.message};
