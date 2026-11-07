@@ -36,7 +36,6 @@ function toGame(g, players) {
 }}
 
 export async function getGame(tx, id) {
-  // TODO 5: load the game, load its players, return toGame(game, players)
   const game = await loadGame(tx, id);
   const players = await loadPlayers(tx, id);
   return toGame(game, players);
