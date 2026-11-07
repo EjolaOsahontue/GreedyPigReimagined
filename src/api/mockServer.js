@@ -181,3 +181,170 @@ export async function bankPoints(gameId) {
   persist();
   return { game: clone(game) };
 }
+
+// ---- COMPETITION (Member 4): leaderboard, player stats, match history
+//
+// Everything below is DERIVED from finished games, the same way the real server derives it from the
+// `results` table. Nothing here accepts a score from the client. Only players with a name count,
+// because unnamed pigs get a nickname on the client only. Names are matched ignoring case and spaces.
+
+const normalizeName = (name) => String(name ?? "").trim().toLowerCase();
+const clampLimit = (n) => Math.min(Math.max(Number.isInteger(n) ? n : 10, 1), 50);
+
+// One row per (named player, finished game), newest game first.
+function resultRows() {
+  const rows = [];
+  for (const g of games.values()) {
+    if (g.status !== "finished") continue;
+    const perGame = new Map(); // the same name used twice in one game counts once
+    g.players.forEach((p) => {
+      const key = normalizeName(p.name);
+      if (!key) return;
+      const won = p.id === g.winner_id;
+      const prev = perGame.get(key);
+      if (prev) {
+        prev.won = prev.won || won;
+        prev.score = Math.max(prev.score, p.total_points);
+        return;
+      }
+      perGame.set(key, { key, name: p.name.trim(), game: g, won, score: p.total_points });
+    });
+    rows.push(...perGame.values());
+  }
+  return rows.sort((a, b) => b.game.updated_at.localeCompare(a.game.updated_at));
+}
+
+function groupByPlayer(rows) {
+  const byKey = new Map();
+  for (const r of rows) {
+    if (!byKey.has(r.key)) byKey.set(r.key, []);
+    byKey.get(r.key).push(r);
+  }
+  return byKey;
+}
+
+function summarize(list) {
+  const wins = list.filter((r) => r.won).length;
+  return {
+    games_played: list.length,
+    wins,
+    win_rate: list.length ? Math.round((wins / list.length) * 100) : 0,
+  };
+}
+
+function rowsForPlayerOrThrow(name) {
+  const list = groupByPlayer(resultRows()).get(normalizeName(name));
+  if (!list) {
+    throw new ApiError({ status: 404, code: "PLAYER_NOT_FOUND", message: "No finished games found for that player" });
+  }
+  return list; // newest game first
+}
+
+// GET /leaderboard?limit=10
+export async function getLeaderboard({ limit = 10 } = {}) {
+  await simulateNetwork();
+  const entries = [...groupByPlayer(resultRows()).values()].map((list) => ({
+    name: list[0].name, // most recent spelling
+    ...summarize(list),
+  }));
+  entries.sort(
+    (a, b) =>
+      b.wins - a.wins ||
+      b.win_rate - a.win_rate ||
+      a.games_played - b.games_played ||
+      a.name.localeCompare(b.name)
+  );
+  return { leaderboard: entries.slice(0, clampLimit(limit)).map((e, i) => ({ rank: i + 1, ...e })) };
+}
+
+// GET /players/:name/stats
+export async function getPlayerStats(name) {
+  await simulateNetwork();
+  const list = rowsForPlayerOrThrow(name);
+  return {
+    player: {
+      name: list[0].name,
+      ...summarize(list),
+      best_score: Math.max(...list.map((r) => r.score)),
+      last_played_at: list[0].game.updated_at,
+    },
+  };
+}
+
+// GET /players/:name/history?limit=10
+export async function getPlayerHistory(name, { limit = 10 } = {}) {
+  await simulateNetwork();
+  const list = rowsForPlayerOrThrow(name);
+  return {
+    history: list.slice(0, clampLimit(limit)).map((r) => ({
+      game_id: r.game.id,
+      played_at: r.game.updated_at,
+      target_score: r.game.target_score,
+      won: r.won,
+      final_score: r.score,
+      opponents: r.game.players
+        .filter((p) => normalizeName(p.name) !== r.key)
+        .map((p) => ({ name: p.name, final_score: p.total_points })),
+    })),
+  };
+}
+
+// ---- DEV ONLY: sample finished games so the leaderboard can be built before the game screens
+// call this API. Marked `sample: true` so they can be removed again. The UI only offers these
+// buttons in `npm run dev`, and the real server has no such endpoints.
+
+const SAMPLE_GAMES = [
+  { target: 100, winner: 0, players: [["Ada", 104], ["Tunde", 71]] },
+  { target: 100, winner: 0, players: [["Tunde", 102], ["Ada", 88], ["Zainab", 40]] },
+  { target: 50, winner: 0, players: [["Zainab", 52], ["Osas", 33]] },
+  { target: 100, winner: 0, players: [["Osas", 100], ["Ada", 96]] },
+  { target: 100, winner: 0, players: [["Ada", 103], ["Zainab", 90], ["", 55]] },
+  { target: 75, winner: 0, players: [["Tosyn", 77], ["Osas", 60]] },
+  { target: 100, winner: 1, players: [["Tunde", 65], ["Zainab", 101]] },
+  { target: 100, winner: 1, players: [["Osas", 99], ["Tosyn", 102]] },
+  { target: 100, winner: 1, players: [["Ada", 50], ["Zainab", 105]] },
+];
+
+export async function clearSampleGames() {
+  await simulateNetwork();
+  let removed = 0;
+  for (const [id, g] of games) {
+    if (g.sample) {
+      games.delete(id);
+      removed += 1;
+    }
+  }
+  persist();
+  return { removed };
+}
+
+export async function seedSampleGames() {
+  await clearSampleGames();
+  const start = Date.now() - SAMPLE_GAMES.length * 3600000; // one game per hour, oldest first
+  SAMPLE_GAMES.forEach((s, i) => {
+    const at = new Date(start + i * 3600000).toISOString();
+    const players = s.players.map(([name, total]) => ({
+      id: newId(),
+      name,
+      pig_index: 0,
+      running_points: 0,
+      total_points: total,
+    }));
+    const game = {
+      id: newId(),
+      status: "finished",
+      target_score: s.target,
+      current_player_index: 0,
+      turn_number: 10 + i,
+      last_roll: null,
+      winner_id: players[s.winner].id,
+      players,
+      created_at: at,
+      updated_at: at,
+      sample: true,
+    };
+    games.set(game.id, game);
+  });
+  persist();
+  return { seeded: SAMPLE_GAMES.length };
+}

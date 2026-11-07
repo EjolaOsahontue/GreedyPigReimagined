@@ -31,6 +31,12 @@ export default function Home() {
           >
             Play Friends (Live)
           </Link>
+          <Link
+            to={`/leaderboard`}
+            className=" sec-font text-xl rounded px-8 py-4 bg-[#d30cbcc0] font-bold duration-500 -skew-x-6 hover:bg-[#d30cbc] hover:skew-x-0 hover:scale-95 "
+          >
+            Leaderboard
+          </Link>
         </div>
       </div>
     </section>
