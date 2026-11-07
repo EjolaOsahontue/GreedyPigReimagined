@@ -4,6 +4,7 @@ import "dotenv/config";
 import { pool } from "./db.js";
 import { handleError } from "./errors.js";
 import gamesRouter from "./routes/games.js";
+import leaderboardRouter from "./routes/leaderboard.js";
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.get("/api/health", async (req, res) => {
 });
 
 app.use("/api/v1/games", gamesRouter);
+app.use("/api/v1/leaderboard", leaderboardRouter);
 // Anything not matched above
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
