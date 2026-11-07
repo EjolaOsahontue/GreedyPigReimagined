@@ -3,7 +3,7 @@ import { withTransaction } from "../db.js";
 import { createGameSchema, parse } from "../schemas.js";
 import * as games from "../gameService.js";
 import { AppError } from "../errors.js";
-import { ca } from "zod/v4/locales";
+
 
 const router = Router();
 
@@ -31,15 +31,8 @@ router.get("/:id", async (req, res) => {
 });
 
 router.post("/:id/bank", rejectBody, async (req, res) => {
-    try{const result = await withTransaction(async(tx) => games.bank(tx, req.params.id));
+    const result = await withTransaction(async (tx) => games.bank(tx, req.params.id));
     res.json(result);
-}   catch (error) {
-        if (error instanceof AppError) {
-            res.status(error.statusCode).json({ error: error.message });
-        } else {
-            res.status(500).json({ error: "Internal Server Error" });
-        }
-    }
 });
 
 router.post("/:id/finish", rejectBody, async (req, res) => {
@@ -47,6 +40,13 @@ router.post("/:id/finish", rejectBody, async (req, res) => {
     return await games.finish(tx, req.params.id);
   });
   res.json(result);
+});
+
+router.post("/:id/double-down", rejectBody, async (req, res) => {
+    const doubleDownResult = await withTransaction(async (tx) => {
+        return await games.doubleDown(tx, req.params.id);
+    });
+    res.json(doubleDownResult);
 });
 
 export default router;

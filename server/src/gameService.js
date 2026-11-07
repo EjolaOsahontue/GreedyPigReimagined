@@ -2,7 +2,8 @@ import { AppError, gameFinished, gameNotFound } from "./errors.js";
 import crypto from "node:crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
+const DOUBLE_DOWN_MIN_ROLLS = 3;
+const DOUBLE_DOWN_PENALTY = 5;
 
 async function loadPlayers(tx, gameId) {
   const result = await tx.query("SELECT * FROM game_players WHERE game_id = $1 ORDER BY seat", [gameId]);
@@ -24,6 +25,11 @@ function toGame(g, players) {
       pig_index: p.pig_index,
       running_points: p.turn_score,
       total_points: p.total_score,
+      double_down_used: p.double_down_used,
+    double_down_active: p.double_down_active,
+    rolls_until_bank: p.double_down_active 
+      ? Math.max(0, DOUBLE_DOWN_MIN_ROLLS - p.rolls_this_turn) 
+      : null,
     })),
     created_at: g.created_at,
     updated_at: g.updated_at,
@@ -91,58 +97,116 @@ async function passTurn(tx, game, playerCount) {
 export async function bank(tx, id) {
   const game = await loadGame(tx, id, { lock: true });
   if (game.status !== "IN_PROGRESS") throw gameFinished();
+  
   const players = await loadPlayers(tx, id);
   const currentPlayer = players[game.current_seat];
-  // 3. turnId = ensureOpenTurn(...)
+
+  // 1. Enforce 3-roll minimum if Double Down is active
+  if (currentPlayer.double_down_active && currentPlayer.rolls_this_turn < DOUBLE_DOWN_MIN_ROLLS) {
+    const remaining = DOUBLE_DOWN_MIN_ROLLS - currentPlayer.rolls_this_turn;
+    throw new AppError(409, "DOUBLE_DOWN_LOCKED", `Must roll ${remaining} more time(s) before banking under Double Down`);
+  }
+
   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
-  const points = currentPlayer.turn_score;
+  
+  // 2. Apply Double Down multiplier if active
+  const multiplier = currentPlayer.double_down_active ? 2 : 1;
+  const points = currentPlayer.turn_score * multiplier;
+
   await closeTurn(tx, turnId, "BANKED", points);
-  const updatePlayer = 'UPDATE game_players SET total_score = total_score + $2, turn_score = 0, rolls_this_turn = 0, turns_taken = turns_taken + 1 WHERE id = $1';
+
+  // 3. Update player: add points, reset turn fields, clear double_down_active, increment turns_taken
+  const updatePlayer = `
+    UPDATE game_players 
+    SET total_score = total_score + $2, 
+        turn_score = 0, 
+        rolls_this_turn = 0, 
+        double_down_active = false, 
+        turns_taken = turns_taken + 1 
+    WHERE id = $1;
+  `;
   await tx.query(updatePlayer, [currentPlayer.id, points]);
+
   if (currentPlayer.total_score + points >= game.target_score) {
     const updateGame = 'UPDATE games SET status = \'FINISHED\', winner_player_id = $2, finished_at = now() WHERE id = $1';
     await tx.query(updateGame, [game.id, currentPlayer.id]);
+    await saveResults(tx, game.id);
   } else {
     await passTurn(tx, game, players.length);
   }
+  
   return { game: await getGame(tx, id) };
 }
 
-export async function roll(tx, id) {
-   const game = await loadGame(tx, id, { lock: true });
-   if (game.status !== "IN_PROGRESS") throw gameFinished();
+export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
+  const game = await loadGame(tx, id, { lock: true });
+  if (game.status !== "IN_PROGRESS") throw gameFinished();
+  
+  const players = await loadPlayers(tx, id);
+  const currentPlayer = players[game.current_seat];
+  
+  const multiplier = currentPlayer.double_down_active ? 2 : 1;
+  const value = rollDie();
+  const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
+  
+  const insertRoll = 'INSERT INTO rolls (game_id, game_player_id, turn_id, value) VALUES ($1, $2, $3, $4)';
+  await tx.query(insertRoll, [game.id, currentPlayer.id, turnId, value]);
 
-   const players = await loadPlayers(tx, id);
-   const currentPlayer = players[game.current_seat];
-   const value = crypto.randomInt(1, 7);
-   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
-   const insertRoll = 'INSERT INTO rolls (game_id, game_player_id, turn_id, value) VALUES ($1, $2, $3, $4)';
-   await tx.query(insertRoll, [game.id, currentPlayer.id, turnId, value]);
+  let outcome;
 
-   if (value === 1) {
-     await closeTurn(tx, turnId, "BUSTED", currentPlayer.turn_score);
-     const updatePlayer = 'UPDATE game_players SET turn_score = 0, rolls_this_turn = 0, turns_taken = turns_taken + 1 WHERE id = $1';
-     await tx.query(updatePlayer, [currentPlayer.id]);
-     await passTurn(tx, game, players.length);
-   }
-   if (value !== 1) {
-     const running = currentPlayer.turn_score + value;
-     if (currentPlayer.total_score + running >= game.target_score) {
-       await closeTurn(tx, turnId, "BANKED", running);
-       const updatePlayer = 'UPDATE game_players SET total_score = total_score + $2, turn_score = 0, rolls_this_turn = 0, turns_taken = turns_taken + 1 WHERE id = $1';
-       await tx.query(updatePlayer, [currentPlayer.id, running]);
-       const updateGame = 'UPDATE games SET status = \'FINISHED\', winner_player_id = $2, finished_at = now() WHERE id = $1';
-       await tx.query(updateGame, [game.id, currentPlayer.id]);
-       await saveResults(tx, game.id);
-     } else {
-       const updatePlayer = 'UPDATE game_players SET turn_score = $2, rolls_this_turn = rolls_this_turn + 1 WHERE id = $1';
-       await tx.query(updatePlayer, [currentPlayer.id, running]);
-     }
+  if (value === 1) {
+    outcome = "bust";
+    await closeTurn(tx, turnId, "BUSTED", currentPlayer.turn_score);
+    
+    // Apply penalty if Double Down was active, floored at 0 using GREATEST
+    const penalty = currentPlayer.double_down_active ? DOUBLE_DOWN_PENALTY : 0;
+    const updatePlayer = `
+      UPDATE game_players 
+      SET total_score = GREATEST(total_score - $2, 0), 
+          turn_score = 0, 
+          rolls_this_turn = 0, 
+          double_down_active = false, 
+          turns_taken = turns_taken + 1 
+      WHERE id = $1;
+    `;
+    await tx.query(updatePlayer, [currentPlayer.id, penalty]);
+    await passTurn(tx, game, players.length);
+  } else {
+    const running = currentPlayer.turn_score + value;
+    const banked = running * multiplier;
+
+    if (currentPlayer.total_score + banked >= game.target_score) {
+      outcome = "win";
+      await closeTurn(tx, turnId, "BANKED", banked);
+      
+      const updatePlayer = `
+        UPDATE game_players 
+        SET total_score = total_score + $2, 
+            turn_score = 0, 
+            rolls_this_turn = 0, 
+            double_down_active = false, 
+            turns_taken = turns_taken + 1 
+        WHERE id = $1;
+      `;
+      await tx.query(updatePlayer, [currentPlayer.id, banked]);
+      
+      const updateGame = 'UPDATE games SET status = \'FINISHED\', winner_player_id = $2, finished_at = now() WHERE id = $1';
+      await tx.query(updateGame, [game.id, currentPlayer.id]);
+      await saveResults(tx, game.id);
+    } else {
+      outcome = "continue";
+      const updatePlayer = 'UPDATE game_players SET turn_score = $2, rolls_this_turn = rolls_this_turn + 1 WHERE id = $1';
+      await tx.query(updatePlayer, [currentPlayer.id, running]);
     }
-    const updateGame = 'UPDATE games SET last_roll_value = $2, last_roll_player_id = $3, updated_at = now() WHERE id = $1';
-    await tx.query(updateGame, [game.id, value, currentPlayer.id]);
-    return { roll: { value, outcome: value === 1 ? "bust" : (currentPlayer.total_score + currentPlayer.turn_score + value >= game.target_score ? "win" : "continue"), player_id: currentPlayer.id }, game: await getGame(tx, id) };
- 
+  }
+
+  const updateGameLastRoll = 'UPDATE games SET last_roll_value = $2, last_roll_player_id = $3, updated_at = now() WHERE id = $1';
+  await tx.query(updateGameLastRoll, [game.id, value, currentPlayer.id]);
+
+  return { 
+    roll: { value, outcome, player_id: currentPlayer.id }, 
+    game: await getGame(tx, id) 
+  };
 }
 async function saveResults(tx, gameId) {
   const game = await loadGame(tx, gameId, { lock: true });
@@ -181,4 +245,23 @@ export async function finish(tx, id) {
     game: await getGame(tx, id), 
     results 
   };
+}
+
+export async function doubleDown(tx, id) {
+  const game = await loadGame(tx, id, { lock: true });
+  if (game.status !== "IN_PROGRESS") throw gameFinished();
+  const players = await loadPlayers(tx, id);
+  const declarer = players[game.current_seat];
+  if (declarer.double_down_used) {
+    throw new AppError(409, "DOUBLE_DOWN_USED", "Double Down already used");
+  }
+  if (declarer.rolls_this_turn > 0) {
+    throw new AppError(409, "DOUBLE_DOWN_TOO_LATE", "Declare Double Down before your first roll of the turn");
+  }
+  const turnId = await ensureOpenTurn(tx, game.id, declarer);
+  const updateTurn = 'UPDATE turns SET double_down = true WHERE id = $1';
+  await tx.query(updateTurn, [turnId]);
+  const updatePlayer = 'UPDATE game_players SET double_down_used = true, double_down_active = true WHERE id = $1';
+  await tx.query(updatePlayer, [declarer.id]);
+  return {game: await getGame(tx, id)}
 }
