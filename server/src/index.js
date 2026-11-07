@@ -3,6 +3,7 @@ import cors from "cors";
 import "dotenv/config";
 import { pool } from "./db.js";
 import { handleError } from "./errors.js";
+import gamesRouter from "./routes/games.js";
 
 const app = express();
 
@@ -20,13 +21,15 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-
+app.use("/api/v1/games", gamesRouter);
 // Anything not matched above
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
 
 
 app.use(handleError); 
+
+
 
 app.listen(process.env.PORT || 3000, () =>
   console.log("API running on port", process.env.PORT || 3000)
