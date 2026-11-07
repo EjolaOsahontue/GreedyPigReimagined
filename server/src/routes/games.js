@@ -32,13 +32,21 @@ router.get("/:id", async (req, res) => {
 
 router.post("/:id/bank", rejectBody, async (req, res) => {
     try{const result = await withTransaction(async(tx) => games.bank(tx, req.params.id));
-    res.json(result);} catch (error) {
+    res.json(result);
+}   catch (error) {
         if (error instanceof AppError) {
             res.status(error.statusCode).json({ error: error.message });
         } else {
             res.status(500).json({ error: "Internal Server Error" });
         }
     }
+});
+
+router.post("/:id/finish", rejectBody, async (req, res) => {
+  const result = await withTransaction(async (tx) => {
+    return await games.finish(tx, req.params.id);
+  });
+  res.json(result);
 });
 
 export default router;

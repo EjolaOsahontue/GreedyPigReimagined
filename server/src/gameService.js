@@ -1,4 +1,4 @@
-import { gameFinished, gameNotFound } from "./errors.js";
+import { AppError, gameFinished, gameNotFound } from "./errors.js";
 import crypto from "node:crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -133,6 +133,7 @@ export async function roll(tx, id) {
        await tx.query(updatePlayer, [currentPlayer.id, running]);
        const updateGame = 'UPDATE games SET status = \'FINISHED\', winner_player_id = $2, finished_at = now() WHERE id = $1';
        await tx.query(updateGame, [game.id, currentPlayer.id]);
+       await saveResults(tx, game.id);
      } else {
        const updatePlayer = 'UPDATE game_players SET turn_score = $2, rolls_this_turn = rolls_this_turn + 1 WHERE id = $1';
        await tx.query(updatePlayer, [currentPlayer.id, running]);
@@ -142,4 +143,42 @@ export async function roll(tx, id) {
     await tx.query(updateGame, [game.id, value, currentPlayer.id]);
     return { roll: { value, outcome: value === 1 ? "bust" : (currentPlayer.total_score + currentPlayer.turn_score + value >= game.target_score ? "win" : "continue"), player_id: currentPlayer.id }, game: await getGame(tx, id) };
  
+}
+async function saveResults(tx, gameId) {
+  const game = await loadGame(tx, gameId, { lock: true });
+  const players = await loadPlayers(tx, gameId);
+  const insertResult = 'INSERT INTO results (game_id, game_player_id, display_name, final_score, is_winner) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (game_id, game_player_id) DO NOTHING';
+    for (const player of players) {
+    const isWinner = player.id === game.winner_player_id;
+    
+    await tx.query(insertResult, [
+      gameId,
+      player.id,
+      player.display_name,
+      player.total_score,
+      isWinner
+      ]);
+
+    
+  }
+}
+
+export async function finish(tx, id) {
+  const game = await loadGame(tx, id, { lock: true });
+  if (game.status !== "FINISHED") {
+    throw new AppError(409, "GAME_NOT_FINISHED", "This game is not finished yet");
+  }
+  await saveResults(tx, id);
+  const final = "SELECT game_player_id, display_name, final_score, is_winner FROM results WHERE game_id = $1 ORDER BY final_score DESC";
+  const result = await tx.query(final, [id]);
+  const results = result.rows.map((row) => ({
+    player_id: row.game_player_id,
+    name: row.display_name,
+    final_score: row.final_score,
+    is_winner: row.is_winner
+  }));
+  return { 
+    game: await getGame(tx, id), 
+    results 
+  };
 }
