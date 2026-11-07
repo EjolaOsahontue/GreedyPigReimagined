@@ -1,4 +1,4 @@
-import { gameNotFound } from "./errors.js";
+import { gameFinished, gameNotFound } from "./errors.js";
 import crypto from "node:crypto";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -88,6 +88,25 @@ async function passTurn(tx, game, playerCount) {
   await tx.query(update, [game.id, next]);
 }
 
+export async function bank(tx, id) {
+  const game = await loadGame(tx, id, { lock: true });
+  if (game.status !== "IN_PROGRESS") throw gameFinished();
+  const players = await loadPlayers(tx, id);
+  const currentPlayer = players[game.current_seat];
+  // 3. turnId = ensureOpenTurn(...)
+  const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
+  const points = currentPlayer.turn_score;
+  await closeTurn(tx, turnId, "BANKED", points);
+  const updatePlayer = 'UPDATE game_players SET total_score = total_score + $2, turn_score = 0, rolls_this_turn = 0, turns_taken = turns_taken + 1 WHERE id = $1';
+  await tx.query(updatePlayer, [currentPlayer.id, points]);
+  if (currentPlayer.total_score + points >= game.target_score) {
+    const updateGame = 'UPDATE games SET status = \'FINISHED\', winner_player_id = $2, finished_at = now() WHERE id = $1';
+    await tx.query(updateGame, [game.id, currentPlayer.id]);
+  } else {
+    await passTurn(tx, game, players.length);
+  }
+  return { game: await getGame(tx, id) };
+}
 
 export async function roll(tx, id) {
    const game = await loadGame(tx, id, { lock: true });
