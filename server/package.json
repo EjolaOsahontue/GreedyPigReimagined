@@ -8,7 +8,9 @@
     "dev": "node --watch src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "db:init": "node scripts/init-db.js",
-    "db:reset": "node scripts/init-db.js --reset"
+    "db:reset": "node scripts/init-db.js --reset",
+    "seed": "node scripts/seed-sample.js",
+    "seed:clean": "node scripts/seed-sample.js --clean"
   },
   "keywords": [],
   "author": "",
