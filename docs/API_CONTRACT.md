@@ -50,7 +50,7 @@ player fields (`running_points`, `total_points`, `pig_index`).
 | `players[].double_down_used` | true once that player has declared Double Down in this game (one use per game) |
 | `last_roll` | `null` until the first roll |
 | `winner_id` | `null` until `status` is `finished` |
-| `name` | 1 to 20 characters, never empty. The frontend sends the pig nickname when the player leaves the box blank. (The database column allows `''` as a default, but the API rejects blank names, as the group plan says.) |
+| `name` | 0 to 20 characters. **Blank is allowed** (`''`): the screen then shows a pig nickname, and the leaderboard ignores unnamed players. The frontend sends exactly what was typed (trimmed). |
 | `pig_index` | which pig picture. The server stores only the number; the client maps it to an image. |
 
 `allowed` is computed by the server after every action:
@@ -67,7 +67,7 @@ The endpoints still **enforce** these rules and return errors. `allowed` only sa
 ### 1. `POST /games`: create a game
 Request:
 ```json
-{ "players": [ { "name": "Ada", "pig_index": 0 }, { "name": "Bacon", "pig_index": 1 } ], "target_score": 100 }
+{ "players": [ { "name": "Ada", "pig_index": 0 }, { "name": "", "pig_index": 1 } ], "target_score": 100 }
 ```
 Response `201`: `{ "game": <Game> }`
 
@@ -135,7 +135,7 @@ Response `200`:
 | Field | Rule |
 |---|---|
 | `players` | array of 2 to 8 |
-| `players[].name` | string, 1 to 20 characters after trim. Blank is rejected by the API (zod `min(1)`), even though the schema's default is `''`. |
+| `players[].name` | string, at most 20 characters after trim. Blank is allowed. The database must **not** have `CHECK (length(trim(display_name)) > 0)` on `game_players`; `display_name VARCHAR(20) NOT NULL DEFAULT ''` is right. |
 | `players[].pig_index` | integer 0 to 28 (stored in `game_players.pig_index`) |
 | `target_score` | integer 25 to 1000 |
 

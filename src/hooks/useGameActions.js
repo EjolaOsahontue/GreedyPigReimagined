@@ -115,8 +115,9 @@ export default function useGameActions() {
   async function startGame() {
     const result = await run(() =>
       gameApi.createGame({
-        // The server does not accept blank names, so a player who left the name empty is sent under their pig nickname.
-        players: playerData.map((p) => ({ name: p.name.trim() || p.tag, pig_index: p.pig_index })),
+        // A blank name stays blank. The server accepts it, and the leaderboard only counts players who typed a name
+        // (the pig nickname is only shown on this screen).
+        players: playerData.map((p) => ({ name: p.name.trim(), pig_index: p.pig_index })),
         targetScore: Number(maxPoints),
       })
     );
