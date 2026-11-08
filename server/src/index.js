@@ -27,7 +27,9 @@ app.use("/api/v1/games", gamesRouter);
 app.use("/api/v1/leaderboard", leaderboardRouter);
 app.use("/api/v1/players", playersRouter);
 // Anything not matched above
-app.use((req, res) => res.status(404).json({ error: "Route not found" }));
+app.use((req, res) => {
+  res.status(404).json({ error: { code: "NOT_FOUND", message: "Route not found" } });
+});
 
 
 
