@@ -8,8 +8,11 @@ CREATE TABLE games (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   mode             game_mode   NOT NULL DEFAULT 'CLASSIC',
   status           game_status NOT NULL DEFAULT 'IN_PROGRESS',
-  target_score     INT NOT NULL DEFAULT 100 CHECK (target_score > 0),
+  target_score     INT NOT NULL DEFAULT 100 CHECK (target_score BETWEEN 25 AND 1000),
   current_seat     INT NOT NULL DEFAULT 0 CHECK (current_seat >= 0),
+  turn_number      INT NOT NULL DEFAULT 1,            -- global counter, +1 every time the turn passes
+  last_roll_value  INT CHECK (last_roll_value BETWEEN 1 AND 6),
+  last_roll_player_id UUID,                           -- who made the last roll (no FK, avoids a circular dependency)
   winner_player_id UUID,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -20,7 +23,8 @@ CREATE TABLE games (
 CREATE TABLE game_players (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id             UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  display_name        VARCHAR(30) NOT NULL CHECK (length(trim(display_name)) > 0),
+  display_name        VARCHAR(20) NOT NULL DEFAULT '',   -- empty allowed: the UI shows a pig nickname
+  pig_index           INT NOT NULL DEFAULT 0 CHECK (pig_index BETWEEN 0 AND 28),
   is_bot              BOOLEAN NOT NULL DEFAULT false,
   seat                INT NOT NULL CHECK (seat >= 0),
   total_score         INT NOT NULL DEFAULT 0 CHECK (total_score >= 0),
@@ -64,7 +68,7 @@ CREATE TABLE results (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id         UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   game_player_id  UUID NOT NULL REFERENCES game_players(id) ON DELETE CASCADE,
-  display_name    VARCHAR(30) NOT NULL,
+  display_name    VARCHAR(20) NOT NULL DEFAULT '',
   is_bot          BOOLEAN NOT NULL DEFAULT false,   -- this row is a bot player
   vs_bot          BOOLEAN NOT NULL DEFAULT false,   -- the game had a bot opponent
   final_score     INT NOT NULL,

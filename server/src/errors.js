@@ -7,6 +7,12 @@ export class AppError extends Error {
     }
 }
 
+export const gameNotFound = () => new AppError(404, "GAME_NOT_FOUND", "Game not found");
+export const gameFinished = () =>
+  new AppError(409, "GAME_FINISHED", "This game is already finished");
+export const playerNotFound = () =>
+  new AppError(404, "PLAYER_NOT_FOUND", "Player not found");
+
 export function handleError(err, req, res, next) {
   if (err instanceof AppError) {
     const errbody = {code: err.code, message: err.message};
@@ -14,6 +20,11 @@ export function handleError(err, req, res, next) {
       errbody.fields = err.fields;
     }
     return res.status(err.status).json({error: errbody});
+  }
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      error: { code: "VALIDATION_ERROR", message: "Request body must be valid JSON" },
+    });
   }
   console.error(err);
   return res.status(500).json({error: {code: 'INTERNAL_SERVER_ERROR', message: 'Internal server error'}});
