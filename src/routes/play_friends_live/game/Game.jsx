@@ -9,6 +9,8 @@ import StatsSectionMobile from "./components/StatsSectionMobile";
 import CurrentPlayerMobile from "./components/CurrentPlayerMobile";
 import DiceSectionMobile from "./components/DiceSectionMobile";
 import ApiErrorBanner from "src/components/ApiErrorBanner";
+import DoubleDownBanner from "src/components/DoubleDownBanner";
+import FeedbackMessage from "src/components/FeedbackMessage";
 
 export default function LiveGame() {
   const { playerData, currentPlayer, isGameOver, winnerId, setIsContinue } = useLiveGameContext();
@@ -20,9 +22,11 @@ export default function LiveGame() {
   return (
     <div className="md:grid md:grid-cols-[minmax(auto,_200px)_1fr_minmax(auto,_200px)] lg:grid-cols-[minmax(auto,_250px)_1fr_minmax(auto,_250px)] xl:grid-cols-[auto_1fr_minmax(auto,_300px)] relative">
       <ApiErrorBanner showSetupLink />
+      <FeedbackMessage />
       <DiceSection />
       <div className=" space-y-2 p-2">
         <Navbar />
+        <DoubleDownBanner />
         <PlayerTable playerData={playerData} currentPlayer={currentPlayer} />
       </div>
       <CurrentPlayerMobile playerData={playerData} currentPlayer={currentPlayer}/>
