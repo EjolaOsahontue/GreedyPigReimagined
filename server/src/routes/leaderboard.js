@@ -4,10 +4,8 @@ import { parseLimit } from "../statsService.js";
 
 const router = Router();
 
-router.get("/", async (req, res) => {
-    const limit = req.query.limit ? parseInt(req.query.limit, 10) : 10;
-    
-    const leaderboard = await getLeaderboard(limit);
+router.get("/", async (req, res) => {    
+    const leaderboard = await getLeaderboard({limit: parseLimit(req.query.limit)});
     res.json({ leaderboard });
 });
 
