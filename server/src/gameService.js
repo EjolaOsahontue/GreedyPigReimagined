@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOUBLE_DOWN_MIN_ROLLS = 3;
 const DOUBLE_DOWN_PENALTY = 5;
+const DOUBLE_DOWN_MULTIPLIER = 2;
 
 async function loadPlayers(tx, gameId) {
   const result = await tx.query("SELECT * FROM game_players WHERE game_id = $1 ORDER BY seat", [gameId]);
@@ -11,6 +12,12 @@ async function loadPlayers(tx, gameId) {
 }
 
 function toGame(g, players) {
+  // What the current player may do right now. The screen only shows this, it never works it out.
+  const current = players[g.current_seat];
+  const open = g.status === "IN_PROGRESS";
+  const ddActive = Boolean(current && current.double_down_active);
+  const rollsThisTurn = current ? current.rolls_this_turn : 0;
+  const bankUnlockIn = ddActive ? Math.max(0, DOUBLE_DOWN_MIN_ROLLS - rollsThisTurn) : 0;
   return {
     id: g.id,
     status: g.status.toLowerCase(), // IN_PROGRESS -> in_progress
@@ -19,6 +26,15 @@ function toGame(g, players) {
     turn_number: g.turn_number,
     last_roll: g.last_roll_value ? { value: g.last_roll_value, player_id: g.last_roll_player_id } : null,
     winner_id: g.winner_player_id,
+    rolls_this_turn: rollsThisTurn,
+    double_down_active: ddActive,
+    turn_multiplier: ddActive ? DOUBLE_DOWN_MULTIPLIER : 1,
+    bank_unlock_in: bankUnlockIn,
+    allowed: {
+      roll: open,
+      bank: open && bankUnlockIn === 0,
+      double_down: open && Boolean(current) && !current.double_down_used && !ddActive && rollsThisTurn === 0,
+    },
     players: players.map((p) => ({
       id: p.id,
       name: p.display_name,
@@ -109,7 +125,7 @@ export async function bank(tx, id) {
   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
   
   // 2. Apply Double Down multiplier if active
-  const multiplier = currentPlayer.double_down_active ? 2 : 1;
+  const multiplier = currentPlayer.double_down_active ? DOUBLE_DOWN_MULTIPLIER : 1;
   const points = currentPlayer.turn_score * multiplier;
 
   await closeTurn(tx, turnId, "BANKED", points);
@@ -134,7 +150,10 @@ export async function bank(tx, id) {
     await passTurn(tx, game, players.length);
   }
   
-  return { game: await getGame(tx, id) };
+  return {
+    bank: { player_id: currentPlayer.id, points_banked: points, multiplier },
+    game: await getGame(tx, id),
+  };
 }
 
 export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
@@ -144,7 +163,7 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
   const players = await loadPlayers(tx, id);
   const currentPlayer = players[game.current_seat];
   
-  const multiplier = currentPlayer.double_down_active ? 2 : 1;
+  const multiplier = currentPlayer.double_down_active ? DOUBLE_DOWN_MULTIPLIER : 1;
   const value = rollDie();
   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
   
@@ -152,6 +171,7 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
   await tx.query(insertRoll, [game.id, currentPlayer.id, turnId, value]);
 
   let outcome;
+  let penaltyApplied = 0; // points really taken from the total (never more than the player had)
 
   if (value === 1) {
     outcome = "bust";
@@ -159,6 +179,7 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
     
     // Apply penalty if Double Down was active, floored at 0 using GREATEST
     const penalty = currentPlayer.double_down_active ? DOUBLE_DOWN_PENALTY : 0;
+    penaltyApplied = Math.min(penalty, currentPlayer.total_score);
     const updatePlayer = `
       UPDATE game_players 
       SET total_score = GREATEST(total_score - $2, 0), 
@@ -203,7 +224,7 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
   await tx.query(updateGameLastRoll, [game.id, value, currentPlayer.id]);
 
   return { 
-    roll: { value, outcome, player_id: currentPlayer.id }, 
+    roll: { value, outcome, player_id: currentPlayer.id, multiplier, penalty_applied: penaltyApplied },
     game: await getGame(tx, id) 
   };
 }
@@ -262,5 +283,13 @@ export async function doubleDown(tx, id) {
   await tx.query(updateTurn, [turnId]);
   const updatePlayer = 'UPDATE game_players SET double_down_used = true, double_down_active = true WHERE id = $1';
   await tx.query(updatePlayer, [declarer.id]);
-  return {game: await getGame(tx, id)}
+  return {
+    double_down: {
+      player_id: declarer.id,
+      multiplier: DOUBLE_DOWN_MULTIPLIER,
+      min_rolls: DOUBLE_DOWN_MIN_ROLLS,
+      penalty: DOUBLE_DOWN_PENALTY,
+    },
+    game: await getGame(tx, id),
+  };
 }
