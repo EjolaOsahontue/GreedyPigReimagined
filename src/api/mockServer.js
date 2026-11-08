@@ -17,7 +17,7 @@ const STORAGE_KEY = "greedy-pig-mock-games";
 // Double Down rules (group plan). The real server keeps these in one place too.
 const RULES = { ddMultiplier: 2, ddMinRolls: 3, ddPenalty: 5 };
 
-const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 30, maxPigIndex: 28 };
+const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 20, maxPigIndex: 28 };
 
 // ---- storage (in memory, mirrored to localStorage so a refresh keeps the game)
 const games = new Map();

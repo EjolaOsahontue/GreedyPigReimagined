@@ -50,7 +50,7 @@ player fields (`running_points`, `total_points`, `pig_index`).
 | `players[].double_down_used` | true once that player has declared Double Down in this game (one use per game) |
 | `last_roll` | `null` until the first roll |
 | `winner_id` | `null` until `status` is `finished` |
-| `name` | 1 to 30 characters, never empty (the frontend sends the pig nickname when the player leaves the box blank) |
+| `name` | 1 to 20 characters, never empty. The frontend sends the pig nickname when the player leaves the box blank. (The database column allows `''` as a default, but the API rejects blank names, as the group plan says.) |
 | `pig_index` | which pig picture. The server stores only the number; the client maps it to an image. |
 
 `allowed` is computed by the server after every action:
@@ -135,8 +135,8 @@ Response `200`:
 | Field | Rule |
 |---|---|
 | `players` | array of 2 to 8 |
-| `players[].name` | string, 1 to 30 characters after trim (blank is rejected). The UI itself limits typing to 20. |
-| `players[].pig_index` | integer 0 to 28 |
+| `players[].name` | string, 1 to 20 characters after trim. Blank is rejected by the API (zod `min(1)`), even though the schema's default is `''`. |
+| `players[].pig_index` | integer 0 to 28 (stored in `game_players.pig_index`) |
 | `target_score` | integer 25 to 1000 |
 
 ## Errors
@@ -179,8 +179,9 @@ The JSON above is the contract, so the API should **serialize** database rows in
 | `game.rolls_this_turn` | current seat's `game_players.rolls_this_turn` |
 | `game.double_down_active` | current seat's `game_players.double_down_active` |
 | `game.turn_multiplier`, `game.bank_unlock_in`, `game.allowed` | computed from the rows above (not stored) |
-| `players[].pig_index` | not in the schema. The frontend does not need it back, so it can be dropped from responses, or add `game_players.pig_index` if you want avatars restored on resume. |
-| `game.turn_number`, `game.last_roll`, `created_at`, `updated_at` | not read by the frontend. Optional. |
+| `players[].pig_index` | `game_players.pig_index` |
+| `game.turn_number` | `games.turn_number` (not read by the frontend) |
+| `game.last_roll` | `{ value: games.last_roll_value, player_id: games.last_roll_player_id }` or `null` (not read by the frontend) |
 
 Notes for the server:
 - **Clamp the Double Down penalty.** `total_score` has `CHECK (total_score >= 0)`, so use `GREATEST(total_score - 5, 0)` and report the amount actually taken as `penalty_applied`. A plain subtraction would crash with a database error.
