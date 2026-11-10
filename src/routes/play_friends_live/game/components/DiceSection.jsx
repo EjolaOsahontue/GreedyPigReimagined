@@ -21,7 +21,7 @@ function DiceSection() {
   };
 
   return (
-    <div className="h-screen border-r-[#ffffff40] border-r hidden md:flex flex-col items-center justify-around p-8 sticky top-0 bg-[#00000010] ">
+    <div className="h-screen overflow-y-auto border-r-[#ffffff40] border-r hidden md:flex flex-col items-center justify-around p-8 sticky top-0 bg-[#00000010]">
       <Dice
         onRoll={roll}
         onRollComplete={showRollResult}

@@ -36,7 +36,7 @@ import dice3 from "src/assets/dice_3.png";
 import dice4 from "src/assets/dice_4.png";
 import dice5 from "src/assets/dice_5.png";
 import dice6 from "src/assets/dice_6.png";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getPigPetNames } from "src/utils/getPigPetNames";
 
 const preloadSrcList = [
@@ -81,7 +81,20 @@ const pigPetNames = getPigPetNames();
 
 function Root() {
   const { imagesPreloaded } = useImagePreloader(preloadSrcList);
-  const [hasSound, setHasSound] = useState(true);
+  const [hasSound, setHasSound] = useState(() => {
+  try {
+    return localStorage.getItem("gp-sound") !== "off";
+  } catch {
+    return true;
+  }
+  });
+
+useEffect(() => {
+  try {
+    localStorage.setItem("gp-sound", hasSound ? "on" : "off");
+  } catch {/*dont flag first*/}
+  }, [hasSound]);
+
   if (!imagesPreloaded) {
     return (
       <>
