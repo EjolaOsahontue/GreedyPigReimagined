@@ -10,7 +10,7 @@ function CurrentPlayerMobile({ playerData, currentPlayer }) {
           >
             <td className="w-[50px]">
               <figure className={` h-[40px]  p-2 `}>
-                <img src={playerData[currentPlayer].avatar} />
+                <img src={playerData[currentPlayer].avatar} alt="" />
               </figure>
             </td>
             <td className=" ">

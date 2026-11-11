@@ -54,7 +54,7 @@ export default function ImageSlider({ player, index }) {
             } w-[120px] duration-500 h-[160px] flex justify-center items-center`}
           >
            
-            <img src={pig} />
+            <img src={pig} alt={`Pig avatar ${index + 1}`} />
           </div>
         );
       })}
@@ -70,6 +70,7 @@ function BtnSlider({ direction, moveSlide }) {
     const audio = useAudio(selectSound)
   return (
     <button
+      aria-label={direction === "next" ? "Next avatar" : "Previous avatar"}
       className="w-[50%] p-2  flex justify-center bg-[#ffffff20] hover:bg-[#ffffff40] rounded border border-[#FFFFFF40] hover:border-[#ffffff80] active:scale-90 duration-[100ms] "
       onClick={() => {audio?.play(),moveSlide()}}
 

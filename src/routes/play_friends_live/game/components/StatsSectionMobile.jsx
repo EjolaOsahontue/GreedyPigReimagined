@@ -33,7 +33,7 @@ function StatsSectionMobile({ playerData, currentPlayer }) {
                 <td className=" text-center p-1">{index + 1}</td>
                 <td className="w-[50px]">
                   <figure className={` h-[40px]  p-2 `}>
-                    <img src={player.avatar} />
+                    <img src={player.avatar} alt=""/>
                   </figure>
                 </td>
                 <td className=" "> {player.name === ''?player.tag:player.name}</td>
