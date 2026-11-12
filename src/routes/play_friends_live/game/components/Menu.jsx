@@ -1,12 +1,15 @@
 import { useEffect, useId, useState } from "react";
 import { HiOutlineMenu } from "react-icons/hi";
 import { GoTools } from "react-icons/go";
+import { AiOutlineQuestionCircle } from "react-icons/ai";
 import { Link } from "react-router-dom";
 import SoundSwitch from "src/components/SoundSwitch";
+import { useGreedyPigContext } from "src/context/useGreedyPigContext";
 
 function Menu() {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const { openTutorial } = useGreedyPigContext();
 
   // Escape closes the menu, so keyboard users are never stuck.
   useEffect(() => {
@@ -45,6 +48,14 @@ function Menu() {
               Setup
             </Link>
             <SoundSwitch />
+            <button
+              type="button"
+              onClick={openTutorial}
+              className="col-span-2 bg-[#ffffff40] hover:bg-[#ffffff80] text-white text-xs rounded-lg flex flex-col gap-1 p-2 justify-end items-center hover:scale-105 active:scale-100 duration-300"
+            >
+              <AiOutlineQuestionCircle size={24} aria-hidden="true" />
+              Tutorial
+            </button>
           </div>
         </div>
       )}

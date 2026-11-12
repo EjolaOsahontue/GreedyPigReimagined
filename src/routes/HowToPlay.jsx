@@ -3,6 +3,7 @@ import logo from "src/assets/pig-0.png";
 import { AiFillHome } from "react-icons/ai";
 import { Link } from "react-router-dom";
 import BackButton from "src/components/BackButton";
+import { SHORTCUTS } from "src/utils/shortcuts";
 
 export default function HowToPlay() {
 
@@ -69,6 +70,23 @@ export default function HowToPlay() {
           </p>
           </section>
         </section>
+
+        <section className="text-white space-y-4">
+          <h1 className="pri-font text-2xl lg:text-4xl">KEYBOARD SHORTCUTS</h1>
+          <section className=" backdrop:blur bg-[#ffffff10] px-8 lg:px-12 py-6 border text-base lg:text-xl rounded-lg">
+            <ul className="space-y-3">
+              {SHORTCUTS.map(([key, action]) => (
+                <li key={key} className="flex items-center gap-4">
+                  <kbd className="min-w-[4rem] text-center px-3 py-1 rounded bg-[#ffffff20] border border-[#ffffff60] font-bold">
+                    {key}
+                  </kbd>
+                  <span>{action}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </section>
+
         <section className="text-white space-y-4">
           <h1 className="pri-font text-2xl lg:text-4xl">About the Devs</h1>
           <section className=" backdrop:blur bg-[#ffffff10] px-8 lg:px-12 py-6 border text-base lg:text-xl rounded-lg">
