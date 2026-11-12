@@ -56,6 +56,8 @@ export function Dice({
   return (
     <>
       <button
+        data-action="roll"
+        aria-keyshortcuts="R"
         className={`hover:scale-105 active:scale-100 duration-300 md:w-auto w-[200px] disabled:cursor-not-allowed`}
         onClick={handleDiceClick}
         disabled={isRolling || disabled}

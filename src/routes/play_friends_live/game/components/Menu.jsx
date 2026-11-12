@@ -1,50 +1,64 @@
-import React from "react";
+import { useEffect, useId, useState } from "react";
 import { HiOutlineMenu } from "react-icons/hi";
 import { GoTools } from "react-icons/go";
+import { AiOutlineQuestionCircle } from "react-icons/ai";
 import { Link } from "react-router-dom";
 import SoundSwitch from "src/components/SoundSwitch";
+import { useGreedyPigContext } from "src/context/useGreedyPigContext";
 
 function Menu() {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const { openTutorial } = useGreedyPigContext();
+
+  // Escape closes the menu, so keyboard users are never stuck.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
-    <div className="group flex flex-col items-center gap-2 hover:cursor-pointer text-sm relative">
-      <div className="flex  gap-2 group-hover:scale-100 scale-0 delay-300 duration-500 bg-[#D30CBD] bottom-0 md:bg-[#D30CBD40] p-2 rounded-lg absolute w-[150px] m-auto">
-        {/* <div className="grid grid-cols-2 gap-2">
-          <button
-            className=" bg-[#ffffff20] hover:bg-[#ffffff40] text-white rounded-lg flex flex-col gap-2 p-2  justify-center items-center hover:scale-105 active:scale-100 duration-300"
-            title="Undo"
-          >
-            {" "}
-            <BiUndo size={24} /> Undo
-          </button>
-          <button
-            className=" bg-[#ffffff20] hover:bg-[#ffffff40] text-white rounded-lg flex flex-col gap-2 p-2 justify-center items-center hover:scale-105 active:scale-100 duration-300"
-            title="Redo"
-          >
-            {" "}
-            <BiRedo size={24} /> Redo
-          </button>
-        </div> */}
-        <div  className="grid grid-cols-2 gap-2 w-full">
-          <Link
-            to={`/live-game/setup`}
-            className=" bg-[#ffffff40] hover:bg-[#ffffff80] text-white rounded-lg flex flex-col gap-2 p-2 justify-end items-center hover:scale-105 active:scale-100 duration-300"
-            title="Setup"
-          >
-            {" "}
-            <GoTools size={24} />
-            Setup
-          </Link>
-          <div
-            className=" bg-[#ffffff40] hover:bg-[#ffffff80] text-white rounded-lg flex flex-col gap-2 p-2 justify-end items-center hover:scale-105 active:scale-100 duration-300"
-            title="Setup"
-          >
-           <SoundSwitch/> Sound
-          </div>
-        </div>
-      </div>
-      <button className="w-[48px] h-[48px] bg-[#D30CBD80] text-white rounded-full flex justify-center items-center">
+    <div className="flex flex-col items-center gap-2 text-sm w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label="Game menu"
+        className="w-[48px] h-[48px] bg-[#D30CBD80] text-white rounded-full flex justify-center items-center hover:scale-105 active:scale-100 duration-300"
+      >
         <HiOutlineMenu size={24} />
       </button>
+
+      {open && (
+        <div
+          id={panelId}
+          className="flex flex-col gap-2 w-full max-w-[200px] bg-[#D30CBD] md:bg-[#D30CBD40] p-2 rounded-lg"
+        >
+          <div className="grid grid-cols-2 gap-2 w-full">
+            <Link
+              to="/live-game/setup"
+              className="bg-[#ffffff40] hover:bg-[#ffffff80] text-white text-xs rounded-lg flex flex-col gap-1 p-2 justify-end items-center hover:scale-105 active:scale-100 duration-300"
+            >
+              <GoTools size={24} aria-hidden="true" />
+              Setup
+            </Link>
+            <SoundSwitch />
+            <button
+              type="button"
+              onClick={openTutorial}
+              className="col-span-2 bg-[#ffffff40] hover:bg-[#ffffff80] text-white text-xs rounded-lg flex flex-col gap-1 p-2 justify-end items-center hover:scale-105 active:scale-100 duration-300"
+            >
+              <AiOutlineQuestionCircle size={24} aria-hidden="true" />
+              Tutorial
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

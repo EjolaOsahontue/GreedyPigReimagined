@@ -2,9 +2,12 @@ import { useEffect, useRef } from "react";
 import { useLiveGameContext } from "src/context/useLiveGameContext";
 import { gameApi, ApiError } from "src/api/gameApi";
 import useAudio from "src/hooks/useAudio";
-import addPlayerSound from "src/sound_effect/add_player.mp3";
+import bankSound from "src/sound_effect/bank.mp3";
 import loseSound from "src/sound_effect/lose_sound.mp3";
 import celebrationSound from "src/sound_effect/celebration.mp3";
+import ddDeclaredSound from "src/sound_effect/double_down_declared.mp3";
+import ddBustSound from "src/sound_effect/double_down_bust.mp3";
+
 
 const GAME_OVER_DELAY_MS = 1000; // same pause the base game used before the winner screen
 
@@ -30,9 +33,11 @@ export default function useGameActions() {
     setLastEvent,
   } = useLiveGameContext();
 
-  const addPlayerAudio = useAudio(addPlayerSound);
+  const bankAudio = useAudio(bankSound);
   const loseAudio = useAudio(loseSound);
   const celebrationAudio = useAudio(celebrationSound);
+  const ddDeclaredAudio = useAudio(ddDeclaredSound);
+  const ddBustAudio = useAudio(ddBustSound);
   const gameOverTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(gameOverTimer.current), []);
@@ -158,7 +163,7 @@ export default function useGameActions() {
       penalty_applied: rolled.penalty_applied,
     });
     if (rolled.outcome === "bust") {
-      loseAudio?.play();
+      (rolled.multiplier > 1 ? ddBustAudio : loseAudio)?.play();
       if (rolled.multiplier > 1) {
         say(
           "bad",
@@ -186,7 +191,7 @@ export default function useGameActions() {
     if (!result) return;
     const { bank: banked, game } = result;
     const name = nameOf(banked.player_id);
-    addPlayerAudio?.play();
+    if (banked.points_banked > 0) bankAudio?.play();
     syncGame(game);
     emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked, multiplier: banked.multiplier });
     if (banked.points_banked === 0) say("info", `${name} passed the turn.`);
@@ -202,6 +207,7 @@ export default function useGameActions() {
     if (!result) return;
     const { double_down: dd, game } = result;
     syncGame(game);
+    ddDeclaredAudio?.play();
     emit({ type: "double_down_declared", player_id: dd.player_id, multiplier: dd.multiplier, min_rolls: dd.min_rolls, penalty: dd.penalty });
     say(
       "info",

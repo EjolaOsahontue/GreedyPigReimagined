@@ -25,7 +25,7 @@ function PlayerTable({playerData, currentPlayer}) {
               >
                 <td className="h-[70px] p-2 grid place-content-center">
                   <figure className="w-[50px] bg-[#ffffff20] p-2 border border-[#FFFF8F40] rounded">
-                    <img src={player.avatar} alt={player.avatar} />
+                    <img src={player.avatar} alt="" />
                   </figure>
                 </td>
                 <td className="">

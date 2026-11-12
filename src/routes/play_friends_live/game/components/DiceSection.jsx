@@ -21,7 +21,7 @@ function DiceSection() {
   };
 
   return (
-    <div className="h-screen border-r-[#ffffff40] border-r hidden md:flex flex-col items-center justify-around p-8 sticky top-0 bg-[#00000010] ">
+    <div className="h-screen overflow-y-auto border-r-[#ffffff40] border-r hidden md:flex flex-col items-center justify-around p-8 sticky top-0 bg-[#00000010]">
       <Dice
         onRoll={roll}
         onRollComplete={showRollResult}
@@ -32,6 +32,8 @@ function DiceSection() {
       />
       <DoubleDownButton onDeclare={declareDoubleDown} disabled={locked || isRolling} />
       <a
+        data-action="pass"
+        aria-keyshortcuts="B"
         href={"#" + (currentPlayer % playerData.length)}
         className={`bg-[#056FA4c0] w-full  text-white text-center text-base lg:text-xl xl:text-2xl font-semibold py-2 lg:py-4 rounded-lg border hover:scale-105 active:scale-100 duration-300 ${passLocked ? "opacity-40 pointer-events-none" : ""}`}
         onClick={handlePassClick}
