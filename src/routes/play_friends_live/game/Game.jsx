@@ -12,6 +12,7 @@ import ApiErrorBanner from "src/components/ApiErrorBanner";
 import DoubleDownBanner from "src/components/DoubleDownBanner";
 import FeedbackMessage from "src/components/FeedbackMessage";
 import ScreenReaderAnnouncer from "src/components/ScreenReaderAnnouncer";
+import KeyboardShortcuts from "src/components/KeyboardShortcuts";
 
 export default function LiveGame() {
   const { playerData, currentPlayer, isGameOver, winnerId, setIsContinue } = useLiveGameContext();
@@ -25,6 +26,7 @@ export default function LiveGame() {
       <ApiErrorBanner showSetupLink />
       <FeedbackMessage />
        <ScreenReaderAnnouncer />
+       <KeyboardShortcuts />
       <DiceSection />
       <div className=" space-y-2 p-2">
         <Navbar />

@@ -28,6 +28,8 @@ export default function DoubleDownButton({ onDeclare, disabled = false }) {
   return (
     <div className="w-full flex flex-col items-center gap-1">
       <button
+        data-action="doubledown"
+        aria-keyshortcuts="D"
         type="button"
         onClick={onDeclare}
         disabled={!enabled}

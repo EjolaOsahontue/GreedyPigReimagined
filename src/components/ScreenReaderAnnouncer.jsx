@@ -3,9 +3,6 @@ import { useLiveGameContext } from "src/context/useLiveGameContext";
 
 const nameOf = (player) => (player ? player.name || player.tag : "Player");
 
-// Speaks what is happening to screen reader users. It draws nothing visible.
-// FeedbackMessage already speaks bust, bank and Double Down declared, so this adds
-// the parts that are missing: plain rolls, bank totals and whose turn is next.
 export default function ScreenReaderAnnouncer() {
   const { lastEvent, playerData, currentPlayer, gameMeta } = useLiveGameContext();
   const [message, setMessage] = useState("");
