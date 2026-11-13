@@ -14,7 +14,7 @@ const STEPS = [
   },
   {
     title: "Watch out for a 1",
-    text: "Roll a 1 and you lose your turn points and the turn passes.",
+    text: "Roll a 1 and you lose your turn points and the turn passes. Roll three numbers that are not 1 in a row and you are ON FIRE: every roll after that earns a +2 bonus, up to +10 a turn.",
   },
   {
     title: "Win and keyboard keys",
