@@ -5,9 +5,6 @@ import useAudio from "src/hooks/useAudio";
 import bankSound from "src/sound_effect/bank.mp3";
 import loseSound from "src/sound_effect/lose_sound.mp3";
 import celebrationSound from "src/sound_effect/celebration.mp3";
-import ddDeclaredSound from "src/sound_effect/double_down_declared.mp3";
-import ddBustSound from "src/sound_effect/double_down_bust.mp3";
-
 
 const GAME_OVER_DELAY_MS = 1000; // same pause the base game used before the winner screen
 
@@ -28,7 +25,6 @@ export default function useGameActions() {
     setWinnerId,
     setIsBusy,
     setApiError,
-    setGameMeta,
     setFeedback,
     setLastEvent,
   } = useLiveGameContext();
@@ -36,8 +32,6 @@ export default function useGameActions() {
   const bankAudio = useAudio(bankSound);
   const loseAudio = useAudio(loseSound);
   const celebrationAudio = useAudio(celebrationSound);
-  const ddDeclaredAudio = useAudio(ddDeclaredSound);
-  const ddBustAudio = useAudio(ddBustSound);
   const gameOverTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(gameOverTimer.current), []);
@@ -98,22 +92,9 @@ export default function useGameActions() {
         id: serverPlayer.id,
         running_points: serverPlayer.running_points,
         total_points: serverPlayer.total_points,
-        double_down_used: serverPlayer.double_down_used,
       }))
     );
     setCurrentPlayer(game.current_player_index);
-    // The server decides what is allowed. The screen only shows it.
-    setGameMeta({
-      doubleDownActive: game.double_down_active,
-      turnMultiplier: game.turn_multiplier,
-      bankUnlockIn: game.bank_unlock_in,
-      rollsThisTurn: game.rolls_this_turn,
-      allowed: {
-        roll: game.allowed.roll,
-        bank: game.allowed.bank,
-        doubleDown: game.allowed.double_down,
-      },
-    });
   }
 
   // Setup screen: create the game on the server. Returns true on success.
@@ -159,21 +140,10 @@ export default function useGameActions() {
       value: rolled.value,
       outcome: rolled.outcome,
       turn_total: roller ? roller.running_points : 0,
-      multiplier: rolled.multiplier,
-      penalty_applied: rolled.penalty_applied,
     });
     if (rolled.outcome === "bust") {
-      (rolled.multiplier > 1 ? ddBustAudio : loseAudio)?.play();
-      if (rolled.multiplier > 1) {
-        say(
-          "bad",
-          rolled.penalty_applied > 0
-            ? `${name} rolled a 1 under Double Down: turn points lost and ${rolled.penalty_applied} taken from their total.`
-            : `${name} rolled a 1 under Double Down: turn points lost. Nothing to take from their total.`
-        );
-      } else {
-        say("bad", `${name} rolled a 1 and lost their turn points.`);
-      }
+      loseAudio?.play();
+      say("bad", `${name} rolled a 1 and lost their turn points.`);
     }
     if (rolled.outcome === "win") {
       setWinnerId(game.winner_id);
@@ -193,27 +163,10 @@ export default function useGameActions() {
     const name = nameOf(banked.player_id);
     if (banked.points_banked > 0) bankAudio?.play();
     syncGame(game);
-    emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked, multiplier: banked.multiplier });
+    emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked });
     if (banked.points_banked === 0) say("info", `${name} passed the turn.`);
-    else if (banked.multiplier > 1) say("good", `${name} banked ${banked.points_banked} (Double Down x${banked.multiplier}).`);
     else say("good", `${name} banked ${banked.points_banked}.`);
   }
 
-  // Double Down button: declare before the first roll of a turn.
-  // The server checks the rules; if it says no, the error banner shows its message.
-  async function declareDoubleDown() {
-    if (!requireGame()) return;
-    const result = await run(() => gameApi.doubleDown(gameId));
-    if (!result) return;
-    const { double_down: dd, game } = result;
-    syncGame(game);
-    ddDeclaredAudio?.play();
-    emit({ type: "double_down_declared", player_id: dd.player_id, multiplier: dd.multiplier, min_rolls: dd.min_rolls, penalty: dd.penalty });
-    say(
-      "info",
-      `${nameOf(dd.player_id)} declared Double Down: roll at least ${dd.min_rolls} times before banking. Banked points count x${dd.multiplier}, but a 1 also costs ${dd.penalty} points.`
-    );
-  }
-
-  return { startGame, roll, showRollResult, bank, declareDoubleDown, isBusy };
+  return { startGame, roll, showRollResult, bank, isBusy };
 }

@@ -7,7 +7,7 @@ const COLOURS = {
   info: "bg-[#1E3A5F] border-[#60A5FA]",
 };
 
-// A short message for what just happened (banked, bust, Double Down declared).
+// A short message for what just happened (banked, bust, on fire).
 // It is a polite live region, so screen readers hear it as well.
 export default function FeedbackMessage() {
   const { feedback } = useLiveGameContext();
