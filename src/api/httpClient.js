@@ -54,3 +54,13 @@ export const getGame = (gameId) => request("GET", `/games/${encodeURIComponent(g
 export const rollDice = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/roll`);
 
 export const bankPoints = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/bank`);
+
+// ---- Competition (Member 4): leaderboard, player stats, match history
+// Same names and return shapes as mockServer.js (see docs/API_CONTRACT.md, "Competition").
+
+export const getLeaderboard = ({ limit = 10 } = {}) => request("GET", `/leaderboard?limit=${limit}`);
+
+export const getPlayerStats = (name) => request("GET", `/players/${encodeURIComponent(name)}/stats`);
+
+export const getPlayerHistory = (name, { limit = 10 } = {}) =>
+  request("GET", `/players/${encodeURIComponent(name)}/history?limit=${limit}`);

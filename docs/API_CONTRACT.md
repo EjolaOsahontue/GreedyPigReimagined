@@ -114,3 +114,72 @@ The client adds one more code itself, `NETWORK_ERROR` (status 0), when the serve
 2. **Do the improvements need extra fields or endpoints?** (bots, power-ups, accounts, leaderboard, etc.) Each improvement owner should add theirs here under a new heading before building.
 3. **Slow requests:** should `roll` be idempotent against double-clicks (e.g. reject a second roll sent within a few ms)? The UI will disable the button while a request is in flight regardless.
 4. **Database choice** affects ids. The draft assumes UUID strings.
+
+---
+
+## Competition: leaderboard, stats, history (Member 4)
+
+Added by Member 4. All three endpoints are **read-only**. The client never sends a score. The server records
+results itself when a game becomes `finished` (the roll that returns `outcome: "win"`), so no separate
+`/finish` endpoint is needed. Rules for who is counted:
+
+- Only players with a non-empty name (after trim) are counted. Unnamed pigs only get a nickname on the client.
+- Names match ignoring case and surrounding spaces (`" ada "` and `"Ada"` are the same player). The response
+  uses the most recent spelling.
+- Only `finished` games count. A game still `in_progress` never appears.
+
+Frontend: `gameApi.getLeaderboard`, `gameApi.getPlayerStats`, `gameApi.getPlayerHistory` (already in
+`mockServer.js` and `httpClient.js`).
+
+### 5. `GET /leaderboard?limit=10`
+`limit` is a whole number from 1 to 50 (default 10; anything invalid falls back to 10).
+Response `200`:
+```json
+{
+  "leaderboard": [
+    { "rank": 1, "name": "Zainab", "games_played": 5, "wins": 3, "win_rate": 60 }
+  ]
+}
+```
+`win_rate` is a whole-number percentage (`round(wins / games_played * 100)`). Order: most `wins`, then higher
+`win_rate`, then fewer `games_played`, then `name` A to Z. `rank` is 1, 2, 3... in that order (no shared ranks).
+An empty list is a normal `200`, not an error.
+
+### 6. `GET /players/:name/stats`
+Response `200`:
+```json
+{
+  "player": {
+    "name": "Ada", "games_played": 5, "wins": 2, "win_rate": 40,
+    "best_score": 104, "last_played_at": "2026-11-06T21:45:00.339Z"
+  }
+}
+```
+`best_score` is the highest final total in any finished game. Unknown player: `404 PLAYER_NOT_FOUND`.
+
+### 7. `GET /players/:name/history?limit=10`
+Newest game first. Same `limit` rule as the leaderboard. Response `200`:
+```json
+{
+  "history": [
+    {
+      "game_id": "uuid", "played_at": "2026-11-06T21:45:00.339Z", "target_score": 100,
+      "won": false, "final_score": 50,
+      "opponents": [ { "name": "Zainab", "final_score": 105 } ]
+    }
+  ]
+}
+```
+`opponents` lists every other player in that game. Their `name` can be an empty string (the UI shows
+"Unnamed pig"). Unknown player: `404 PLAYER_NOT_FOUND`.
+
+### New error code
+| HTTP | `code` | When |
+|---|---|---|
+| 404 | `PLAYER_NOT_FOUND` | `stats` or `history` for a name with no finished games |
+
+### Open points for Member 1
+1. `server/schema.sql` has `CHECK (length(trim(display_name)) > 0)` on `game_players`, but this contract allows
+   empty player names. One of them has to change.
+2. `results` needs one row per player per finished game, written in the same transaction as the winning roll.
+   Its `UNIQUE (game_id, game_player_id)` already stops duplicates.

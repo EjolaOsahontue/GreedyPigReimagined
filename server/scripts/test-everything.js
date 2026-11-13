@@ -7,7 +7,7 @@
 // Every game it creates uses a name starting with sttest_, lbtest_ or httptest_, and all of them
 // are deleted at the end (and at the start, in case an earlier run crashed). Nothing else is touched.
 import { pool, withTransaction } from "../src/db.js";
-import { createGame, roll, bank, finish, doubleDown } from "../src/gameService.js";
+import { createGame, roll, bank, finish } from "../src/gameService.js";
 import { getLeaderboard, getPlayerStats, getPlayerHistory, parseLimit } from "../src/statsService.js";
 
 const BASE = (process.env.BASE_URL || "http://localhost:3000").replace(/\/$/, "");
@@ -48,7 +48,6 @@ async function play(names, moves) {
   for (const [action, n] of moves) {
     if (action === "roll") game = (await T((tx) => roll(tx, game.id, () => n))).game;
     else if (action === "bank") game = (await T((tx) => bank(tx, game.id))).game;
-    else if (action === "dd") game = (await T((tx) => doubleDown(tx, game.id))).game;
   }
   await pause();
   return game;
@@ -83,14 +82,17 @@ await section("roll: the dice rules", async (expect, expectError) => {
     const before = game, who = before.current_player_index;
     const res = await T((tx) => roll(tx, game.id));
     game = res.game; rolls++;
-    const { value, outcome } = res.roll;
+    const { value, outcome, bonus } = res.roll;
     expect(value >= 1 && value <= 6, "value out of range: " + value);
+    expect(Number.isInteger(bonus) && bonus >= 0 && bonus <= 2, "roll.bonus must be 0 or 2, got " + bonus);
     if (value === 1) {
       expect(outcome === "bust", "a 1 must be a bust");
-      expect(game.players[who].running_points === 0, "a bust must zero the turn points");
+      expect(bonus === 0, "a bust must have no bonus");
+      expect(game.players[who].running_points === 0 && game.players[who].streak === 0, "a bust must zero the turn points and the streak");
       expect(game.current_player_index !== who, "a bust must pass the turn");
     } else if (outcome === "continue") {
-      expect(game.players[who].running_points === before.players[who].running_points + value, "points must add up");
+      expect(game.players[who].running_points === before.players[who].running_points + value + bonus, "points must add up (roll + bonus)");
+      expect(game.players[who].streak === before.players[who].streak + 1, "the streak must go up by 1 on every non-1 roll");
       expect(game.current_player_index === who, "the turn must stay with the roller");
     }
   }
@@ -159,72 +161,53 @@ await section("finish: saving results", async (expect, expectError) => {
   expect(Number(after.rows[0].count) === 2, "calling finish twice must not duplicate results");
 });
 
-await section("double down: the plan's rules", async (expect, expectError) => {
+await section("hot streak: the plan's rules", async (expect) => {
+  // A: 3 plain rolls, then +2 on rolls 4 to 8 (the +10 cap), then plain again
   let g = await newGame();
-  const a = g.id;
-  await setTotal(g, 0, 20);                                   // the plan's worked example: 20 banked
-  g = (await T((tx) => doubleDown(tx, a))).game;
-  expect(g.players[0].double_down_active && g.players[0].double_down_used, "A: declaring must set active and used");
-  expect(g.players[0].rolls_until_bank === 3, "A: rolls_until_bank should start at 3");
-  await expectError(T((tx) => bank(tx, a)), "DOUBLE_DOWN_LOCKED", "A: bank before any roll");
-  const dieA = dice(4, 5, 3);
-  g = (await T((tx) => roll(tx, a, dieA))).game;
-  g = (await T((tx) => roll(tx, a, dieA))).game;
-  expect(g.players[0].rolls_until_bank === 1, "A: after 2 rolls, 1 roll should be left");
-  await expectError(T((tx) => bank(tx, a)), "DOUBLE_DOWN_LOCKED", "A: bank after 2 rolls");
-  g = (await T((tx) => roll(tx, a, dieA))).game;
-  expect(g.players[0].running_points === 12 && g.players[0].rolls_until_bank === 0, "A: turn total 12, lock released");
-  g = (await T((tx) => bank(tx, a))).game;
-  expect(g.players[0].total_points === 44, "A: 20 + 12 doubled must be 44, got " + g.players[0].total_points);
-  expect(!g.players[0].double_down_active && g.players[0].double_down_used, "A: active clears, used stays");
-  expect(g.current_player_index === 1, "A: the turn must pass");
-  g = (await T((tx) => bank(tx, a))).game;                    // player 2 banks 0, back to Ada
-  await expectError(T((tx) => doubleDown(tx, a)), "DOUBLE_DOWN_USED", "D: second Double Down");
+  const dieA = dice(2, 2, 2, 2, 2, 2, 2, 2, 2);
+  const bonuses = [], running = [];
+  for (let i = 0; i < 9; i++) {
+    const r = await T((tx) => roll(tx, g.id, dieA));
+    bonuses.push(r.roll.bonus); running.push(r.game.players[0].running_points);
+    if (i === 3) expect(r.game.players[0].streak === 4, "A: streak must be 4 after 4 rolls, got " + r.game.players[0].streak);
+  }
+  expect(bonuses.join() === "0,0,0,2,2,2,2,2,0", "A: bonuses must be 0,0,0,2,2,2,2,2,0, got " + bonuses.join());
+  expect(running.join() === "2,4,6,10,14,18,22,26,28", "A: running points must be 2,4,6,10,14,18,22,26,28, got " + running.join());
 
-  g = await newGame();                                        // the bust example: 20 -> 15
-  await setTotal(g, 0, 20);
-  await T((tx) => doubleDown(tx, g.id));
-  const dieB = dice(4, 5, 1);
-  await T((tx) => roll(tx, g.id, dieB));
-  await T((tx) => roll(tx, g.id, dieB));
+  // B: a 1 wipes everything, bonus included, and ends the streak
+  g = await newGame();
+  const dieB = dice(2, 2, 2, 2, 1);
+  for (let i = 0; i < 4; i++) await T((tx) => roll(tx, g.id, dieB));
   const rb = await T((tx) => roll(tx, g.id, dieB));
-  expect(rb.roll.outcome === "bust", "B: a 1 is a bust");
-  expect(rb.game.players[0].total_points === 15, "B: 20 - 5 = 15, got " + rb.game.players[0].total_points);
-  expect(rb.game.players[0].running_points === 0, "B: turn points wiped");
-  expect(!rb.game.players[0].double_down_active && rb.game.players[0].double_down_used, "B: active clears, used stays");
+  expect(rb.roll.outcome === "bust" && rb.roll.bonus === 0, "B: a 1 is a bust with no bonus");
+  expect(rb.game.players[0].total_points === 0 && rb.game.players[0].running_points === 0 && rb.game.players[0].streak === 0, "B: turn points and streak wiped, total untouched");
   expect(rb.game.current_player_index === 1, "B: bust passes the turn");
+  const tb = await pool.query("SELECT outcome, points FROM turns WHERE game_id = $1 AND outcome = 'BUSTED'", [g.id]);
+  expect(tb.rows[0]?.points === 10, "B: the bust must record the 10 points lost (bonus included), got " + tb.rows[0]?.points);
 
-  g = await newGame();                                        // penalty floors at 0
-  await setTotal(g, 0, 3);
-  await T((tx) => doubleDown(tx, g.id));
-  const rc = await T((tx) => roll(tx, g.id, dice(1)));
-  expect(rc.game.players[0].total_points === 0, "C: 3 - 5 must floor at 0, got " + rc.game.players[0].total_points);
+  // C: banking keeps the bonus; D: the next turn starts with no streak
+  g = await newGame();
+  const dieC = dice(2, 2, 2, 2, 5);
+  for (let i = 0; i < 4; i++) await T((tx) => roll(tx, g.id, dieC));
+  const rc = await T((tx) => bank(tx, g.id));
+  expect(rc.game.players[0].total_points === 10, "C: 2+2+2+(2+2) banked must be 10, got " + rc.game.players[0].total_points);
+  expect(rc.game.players[0].streak === 0, "C: banking resets the streak");
+  await T((tx) => bank(tx, g.id));                              // player 2 banks 0, back to player 1
+  const rd = await T((tx) => roll(tx, g.id, dieC));
+  expect(rd.roll.bonus === 0 && rd.game.players[0].streak === 1, "D: a new turn starts with no streak and no bonus");
 
-  g = await newGame();                                        // too late
-  await T((tx) => roll(tx, g.id, dice(4)));
-  await expectError(T((tx) => doubleDown(tx, g.id)), "DOUBLE_DOWN_TOO_LATE", "E: declare after rolling");
-
-  g = await newGame();                                        // a normal turn is not doubled
-  await T((tx) => roll(tx, g.id, dice(4)));
-  const rf = await T((tx) => bank(tx, g.id));
-  expect(rf.game.players[0].total_points === 4, "F: a normal bank adds exactly the turn points");
-  expect(rf.game.players[0].double_down_used === false, "F: Double Down stays unused");
-
-  g = await newGame(25);                                      // a win under Double Down counts the doubled points
-  await T((tx) => doubleDown(tx, g.id));
-  const dieG = dice(6, 6, 6);
-  await T((tx) => roll(tx, g.id, dieG));
-  await T((tx) => roll(tx, g.id, dieG));
-  const rg = await T((tx) => roll(tx, g.id, dieG));
-  expect(rg.roll.outcome === "win" && rg.game.status === "finished", "G: 18 doubled = 36 reaches 25, a win");
-  expect(rg.game.players[0].total_points === 36, "G: final total is 36, got " + rg.game.players[0].total_points);
+  // E: the bonus can win the game (18 + 6 + 2 = 26 reaches 25, 24 would not)
+  g = await newGame(25);
+  const dieE = dice(6, 6, 6, 6);
+  for (let i = 0; i < 3; i++) await T((tx) => roll(tx, g.id, dieE));
+  const re = await T((tx) => roll(tx, g.id, dieE));
+  expect(re.roll.outcome === "win" && re.roll.bonus === 2 && re.game.status === "finished", "E: the 4th six wins with a +2 bonus");
+  expect(re.game.players[0].total_points === 26, "E: final total is 26, got " + re.game.players[0].total_points);
   const saved = await pool.query("SELECT final_score FROM results WHERE game_id = $1 AND is_winner", [g.id]);
-  expect(saved.rows[0]?.final_score === 36, "G: the saved result must say 36");
-  const dd = await pool.query("SELECT count(*) FROM turns WHERE game_id = $1 AND double_down = true", [a]);
-  expect(Number(dd.rows[0].count) === 1, "H: exactly one turn in game A is marked double_down");
+  expect(saved.rows[0]?.final_score === 26, "E: the saved result must say 26");
 });
 
-const sixes = [R(6), R(6), R(6), R(6), R(6)];
+const sixes = [R(6), R(6), R(6), R(6)];                       // 18, then 6 + 2 = 26: wins a target-25 game
 
 await section("leaderboard: ranking rules", async (expect) => {
   await play(["lbtest_a", ""], sixes);                                  // lbtest_a beats a blank-named player
@@ -248,17 +231,15 @@ await section("leaderboard: ranking rules", async (expect) => {
 });
 
 await section("stats and history", async (expect, expectError) => {
-  const g1 = await play(["sttest_a", "sttest_b"], [R(4), R(3), ["bank"], R(1), ["dd"], R(6), R(6)]);          // a wins with a Double Down: 7 + 24 = 31
+  const g1 = await play(["sttest_a", "sttest_b"], [R(4), ["bank"], R(1), R(6), R(6), R(6), R(6)]);           // a banks 4, then a hot streak turn of 26 wins: 30
   const g2 = await play(["sttest_b", "sttest_a"], sixes);                                                     // b wins at once
-  const g3 = await play(["sttest_a", "sttest_b"], [["dd"], R(5), R(4), R(1), R(6), R(6), R(6), R(6), R(6)]);  // a busts a Double Down (loses 9), b wins
+  const g3 = await play(["sttest_a", "sttest_b"], [R(5), R(4), R(1), R(6), R(6), R(6), R(6)]);                // a busts (loses 9), b wins
   const s = await getPlayerStats("sttest_a");
   expect(s.name === "sttest_a", "stats name");
   expect(s.games_played === 3 && s.wins === 1 && s.win_rate === 33, `games/wins/win_rate must be 3/1/33, got ${s.games_played}/${s.wins}/${s.win_rate}`);
-  expect(s.best_score === 31, "best_score must be 31, got " + s.best_score);
-  expect(s.best_turn === 24, "best_turn must be 24 (the doubled bank), got " + s.best_turn);
+  expect(s.best_score === 30, "best_score must be 30, got " + s.best_score);
+  expect(s.best_turn === 26, "best_turn must be 26 (the hot streak turn), got " + s.best_turn);
   expect(s.biggest_bust === 9, "biggest_bust must be 9, got " + s.biggest_bust);
-  expect(s.double_downs_won === 1, "double_downs_won must be 1, got " + s.double_downs_won);
-  expect(s.double_downs_busted === 1, "double_downs_busted must be 1, got " + s.double_downs_busted);
   expect(typeof s.wins === "number" && typeof s.best_score === "number", "counts must be real numbers, not strings");
   const sb = await getPlayerStats("  STTEST_B ");
   expect(sb.games_played === 3 && sb.wins === 2, "capitals and spaces must not matter: b has 3 games, 2 wins");
@@ -270,10 +251,10 @@ await section("stats and history", async (expect, expectError) => {
   expect(h.length === 3, "history must have 3 games, got " + h.length);
   expect(h[0]?.game_id === g3.id && h[1]?.game_id === g2.id && h[2]?.game_id === g1.id, "newest game must come first (G3, G2, G1)");
   expect(h[0]?.won === false && h[2]?.won === true, "won flags: G3 lost, G1 won");
-  expect(h[2]?.final_score === 31 && h[0]?.final_score === 0, "final scores: G1 31, G3 0");
+  expect(h[2]?.final_score === 30 && h[0]?.final_score === 0, "final scores: G1 30, G3 0");
   expect(h[0]?.target_score === 25, "target_score must be included");
   expect(h[2]?.opponents?.length === 1 && h[2].opponents[0].name === "sttest_b" && h[2].opponents[0].final_score === 0, "G1 opponent is sttest_b with 0");
-  expect(h[0]?.opponents?.[0]?.final_score === 30, "G3 opponent scored 30");
+  expect(h[0]?.opponents?.[0]?.final_score === 26, "G3 opponent scored 26");
   expect(Object.keys(h[0] ?? {}).sort().join() === "final_score,game_id,opponents,played_at,target_score,won", "each entry needs exactly: game_id, played_at, target_score, won, final_score, opponents");
   expect((await getPlayerHistory("sttest_a", { limit: 1 })).length === 1, "limit 1 returns 1 entry");
   await expectError(getPlayerHistory("sttest_nobody"), "PLAYER_NOT_FOUND", "unknown player (history)");
@@ -330,20 +311,19 @@ if (!serverUp) {
   });
 
   let gameId = null;
-  await section("http: play a game, cheat attempts, Double Down, finish", async (expect) => {
+  await section("http: play a game, cheat attempts, Hot Streak, finish", async (expect) => {
     let r = await call("POST", "/games", { players: good, target_score: 25 });
     expect(r.status === 201 && r.data?.game?.status === "in_progress", "create game must give 201 and in_progress");
     const game = r.data?.game;
     gameId = game?.id;
-    expect(game?.players?.length === 2 && game.players[0].double_down_used === false && game.players[0].double_down_active === false && game.players[0].rolls_until_bank === null,
-      "players must include double_down_used, double_down_active and rolls_until_bank");
-    expect(Object.keys(game?.players?.[0] ?? {}).sort().join() === "double_down_active,double_down_used,id,name,pig_index,rolls_until_bank,running_points,total_points",
-      "player fields must be exactly: id, name, pig_index, running_points, total_points, double_down_used, double_down_active, rolls_until_bank");
+    expect(game?.players?.length === 2 && game.players[0].streak === 0, "players must include streak, starting at 0");
+    expect(Object.keys(game?.players?.[0] ?? {}).sort().join() === "id,name,pig_index,running_points,streak,total_points",
+      "player fields must be exactly: id, name, pig_index, running_points, total_points, streak");
     r = await call("GET", `/games/${gameId}`);
     expect(r.status === 200 && r.data?.game?.id === gameId, "GET game must return the same game");
 
     // cheating: the server decides the dice and the score, so any body is refused
-    for (const [path, body] of [["roll", { value: 6 }], ["bank", { total_points: 500 }], ["double-down", { multiplier: 10 }], ["finish", { winner: "x" }]]) {
+    for (const [path, body] of [["roll", { value: 6 }], ["roll", { bonus: 10 }], ["bank", { total_points: 500 }], ["finish", { winner: "x" }]]) {
       r = await call("POST", `/games/${gameId}/${path}`, body);
       expect(r.status === 400 && r.data?.error?.code === "VALIDATION_ERROR", `CHEAT on /${path}: a request body must be refused with 400, got ${r.status}`);
     }
@@ -354,28 +334,28 @@ if (!serverUp) {
     expect(r.status === 409 && r.data?.error?.code === "GAME_NOT_FINISHED", "finish too early must give 409 GAME_NOT_FINISHED, got " + r.status);
 
     r = await call("POST", `/games/${gameId}/double-down`);
-    expect(r.status === 200 && r.data?.game?.players?.[0]?.double_down_active === true && r.data.game.players[0].rolls_until_bank === 3, "double-down must give 200, active, 3 rolls to go");
-    r = await call("POST", `/games/${gameId}/bank`);
-    expect(r.status === 409 && r.data?.error?.code === "DOUBLE_DOWN_LOCKED", "bank under Double Down must give 409 DOUBLE_DOWN_LOCKED, got " + r.status);
-    r = await call("POST", `/games/${gameId}/double-down`);
-    expect(r.status === 409 && r.data?.error?.code === "DOUBLE_DOWN_USED", "a second Double Down must give 409 DOUBLE_DOWN_USED, got " + r.status);
+    expect(r.status === 404 && r.data?.error?.code === "NOT_FOUND", "the old double-down endpoint must be gone (404), got " + r.status);
+
+    r = await call("POST", `/games/${gameId}/roll`);
+    expect(r.status === 200 && r.data?.roll?.bonus === 0 && typeof r.data.roll.value === "number", "the first roll must give 200 with value and bonus 0");
+    expect(r.data?.game?.players?.[0] && typeof r.data.game.players[0].streak === "number", "the roll response game must include each player's streak");
 
     // two rolls at the same instant must both be handled cleanly (the game row is locked)
     const both = await Promise.all([call("POST", `/games/${gameId}/roll`), call("POST", `/games/${gameId}/roll`)]);
-    expect(both.every((x) => x.status === 200 && x.data?.roll?.value >= 1 && x.data.roll.value <= 6), "two simultaneous rolls must both give 200 with a value from 1 to 6");
+    expect(both.every((x) => x.status === 200 && x.data?.roll?.value >= 1 && x.data.roll.value <= 6 && Number.isInteger(x.data.roll.bonus)), "two simultaneous rolls must both give 200 with a value from 1 to 6 and a bonus");
 
     // play on to the end through the API
     let g = (await call("GET", `/games/${gameId}`)).data.game, moves = 0;
     while (g.status === "in_progress" && moves < 3000) {
       moves++;
       const p = g.players[g.current_player_index];
-      const action = p.running_points >= 10 && !p.double_down_active ? "bank" : "roll";
+      const action = p.running_points >= 10 ? "bank" : "roll";
       const res = await call("POST", `/games/${gameId}/${action}`);
       if (res.status !== 200) { expect(false, `${action} gave ${res.status} during play`); break; }
       g = res.data.game;
     }
     expect(g.status === "finished" && !!g.winner_id, "the game must finish with a winner_id");
-    for (const path of ["roll", "bank", "double-down"]) {
+    for (const path of ["roll", "bank"]) {
       r = await call("POST", `/games/${gameId}/${path}`);
       expect(r.status === 409 && r.data?.error?.code === "GAME_FINISHED", `${path} on a finished game must give 409 GAME_FINISHED, got ${r.status}`);
     }
@@ -395,7 +375,7 @@ if (!serverUp) {
     expect(r.status === 200 && r.data.leaderboard.length <= 10, "?limit=abc must fall back to 10, not fail");
 
     r = await call("GET", "/players/httptest_a/stats");
-    const need = "best_score,best_turn,biggest_bust,double_downs_busted,double_downs_won,games_played,last_played_at,name,win_rate,wins";
+    const need = "best_score,best_turn,biggest_bust,games_played,last_played_at,name,win_rate,wins";
     expect(r.status === 200 && r.data?.player?.games_played === 1, "stats for httptest_a must give 200 and 1 game, got " + r.status);
     expect(Object.keys(r.data?.player ?? {}).sort().join() === need, "stats fields must be exactly: " + need);
     r = await call("GET", "/players/httptest_a/history");
