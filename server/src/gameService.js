@@ -14,20 +14,27 @@ async function loadPlayers(tx, gameId) {
 function toGame(g, players) {
   return {
     id: g.id,
-    status: g.status.toLowerCase(), // IN_PROGRESS -> in_progress
+    status: g.status.toLowerCase(),
     target_score: g.target_score,
     current_player_index: g.current_seat,
     turn_number: g.turn_number,
     last_roll: g.last_roll_value ? { value: g.last_roll_value, player_id: g.last_roll_player_id } : null,
     winner_id: g.winner_player_id,
-    players: players.map((p) => ({
-      id: p.id,
-      name: p.display_name,
-      pig_index: p.pig_index,
-      running_points: p.turn_score,
-      total_points: p.total_score,
-      streak: p.rolls_this_turn,
-    })),
+    players: players.map((p) => {
+      const streak = p.rolls_this_turn;
+      const onFire = streak >= 3;
+      const bonusThisTurn = Math.min(Math.max(streak - 3, 0) * FIRE_BONUS, FIRE_BONUS_MAX);
+      return {
+        id: p.id,
+        name: p.display_name,
+        pig_index: p.pig_index,
+        running_points: p.turn_score,
+        total_points: p.total_score,
+        streak,
+        on_fire: onFire,
+        bonus_this_turn: bonusThisTurn,
+      };
+    }),
     created_at: g.created_at,
     updated_at: g.updated_at,
   };
@@ -55,9 +62,7 @@ export async function createGame(tx, { players, target_score }) {
 async function loadGame(tx, id, { lock = false } = {}) {
   if (!UUID_RE.test(id)) throw gameNotFound();
 
-  // Dynamically add FOR UPDATE only if lock is true
   const query = `SELECT * FROM games WHERE id = $1 ${lock ? "FOR UPDATE" : ""};`;
-
   const result = await tx.query(query, [id]);
 
   if (result.rows.length === 0) {
@@ -98,7 +103,7 @@ export async function bank(tx, id) {
   const currentPlayer = players[game.current_seat];
 
   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
-  const points = currentPlayer.turn_score; // already includes any Hot Streak bonus
+  const points = currentPlayer.turn_score;
 
   await closeTurn(tx, turnId, "BANKED", points);
 
@@ -129,7 +134,6 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
 
   const players = await loadPlayers(tx, id);
   const currentPlayer = players[game.current_seat];
-
   const value = rollDie();
   const turnId = await ensureOpenTurn(tx, game.id, currentPlayer);
 
@@ -138,12 +142,16 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
 
   let outcome;
   let bonus = 0;
+  const streakBefore = currentPlayer.rolls_this_turn;
+  let streakAfter;
+  let onFire = false;
+  let caughtFire = false;
 
   if (value === 1) {
     outcome = "bust";
+    streakAfter = 0;
     await closeTurn(tx, turnId, "BUSTED", currentPlayer.turn_score);
 
-    // A 1 wipes the whole turn, bonus included, and ends the streak.
     const updatePlayer = `
       UPDATE game_players
       SET turn_score = 0,
@@ -154,10 +162,12 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
     await tx.query(updatePlayer, [currentPlayer.id]);
     await passTurn(tx, game, players.length);
   } else {
-    // Rolls 4 to 8 each earn +2, which makes the +10 cap per turn.
-    const rollNumber = currentPlayer.rolls_this_turn + 1;
-    if (rollNumber > FIRE_AFTER) {
-      const earnedBefore = Math.min(FIRE_BONUS_MAX, (rollNumber - 1 - FIRE_AFTER) * FIRE_BONUS);
+    streakAfter = streakBefore + 1;
+    caughtFire = streakBefore === 2 && streakAfter === 3;
+    onFire = streakAfter >= 3;
+
+    if (streakBefore >= FIRE_AFTER) {
+      const earnedBefore = Math.min(FIRE_BONUS_MAX, (streakBefore - FIRE_AFTER) * FIRE_BONUS);
       bonus = Math.min(FIRE_BONUS, FIRE_BONUS_MAX - earnedBefore);
     }
     const running = currentPlayer.turn_score + value + bonus;
@@ -181,8 +191,8 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
       await saveResults(tx, game.id);
     } else {
       outcome = "continue";
-      const updatePlayer = 'UPDATE game_players SET turn_score = $2, rolls_this_turn = rolls_this_turn + 1 WHERE id = $1';
-      await tx.query(updatePlayer, [currentPlayer.id, running]);
+      const updatePlayer = 'UPDATE game_players SET turn_score = $2, rolls_this_turn = $3 WHERE id = $1';
+      await tx.query(updatePlayer, [currentPlayer.id, running, streakAfter]);
     }
   }
 
@@ -190,7 +200,15 @@ export async function roll(tx, id, rollDie = () => crypto.randomInt(1, 7)) {
   await tx.query(updateGameLastRoll, [game.id, value, currentPlayer.id]);
 
   return {
-    roll: { value, bonus, outcome, player_id: currentPlayer.id },
+    roll: { 
+      value, 
+      bonus, 
+      outcome, 
+      player_id: currentPlayer.id,
+      streak: streakAfter,
+      on_fire: onFire,
+      caught_fire: caughtFire
+    },
     game: await getGame(tx, id)
   };
 }

@@ -7,6 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { getInitialPlayerData } from "src/utils/live_game/getInitialData";
 import SoundSwitch from "src/components/SoundSwitch";
 import { useGreedyPigContext } from "src/context/useGreedyPigContext";
+import useGameActions from "src/hooks/useGameActions";
+import ApiErrorBanner from "src/components/ApiErrorBanner";
 
 function LiveGameSetup() {
   const {
@@ -14,30 +16,19 @@ function LiveGameSetup() {
     maxPoints,
     setMaxPoints,
     setPlayerData,
-    setDiceValue,
-    setIsGameOver,
-    setCurrentPlayer,
     isContinue,
   } = useLiveGameContext();
+  const { startGame, isBusy } = useGameActions();
   const navigate = useNavigate();
   const { preloadSrcList, pigPetNames } = useGreedyPigContext();
   const pigs = preloadSrcList.filter((pig) => pig.includes("pig"));
 
-  function setupPlayers(resume) {
+  // A new game is created on the server first. We only move to the game
+  // screen if that worked; otherwise the error banner explains what to fix.
+  async function setupPlayers(resume) {
     if (!resume) {
-      let newPlayerData = playerData.map((player) => {
-        let newPlayer = {
-          ...player,
-          running_points: 0,
-          total_points: 0,
-        };
-        return newPlayer;
-      });
-
-      setDiceValue(0);
-      setIsGameOver(false);
-      setCurrentPlayer(0);
-      setPlayerData(newPlayerData);
+      const created = await startGame();
+      if (!created) return;
     }
     navigate("/live-game/game");
   }
@@ -50,12 +41,14 @@ function LiveGameSetup() {
     <>
       <main className="">
         <Navbar />
+        <ApiErrorBanner />
         <div className="flex flex-col items-center gap-8 text-white px-[5%] md:px-[10%] py-4 ">
           <section className="flex flex-col">
             <label htmlFor="">Max Score</label>
             <input
               type="number"
               min={25}
+              max={1000}
               value={maxPoints}
               onChange={(e) => {
                 setMaxPoints(e.target.value);
@@ -63,6 +56,7 @@ function LiveGameSetup() {
               className="p-2 bg-[#ffffff20] border rounded-md min-w-[5%] w-[250px]  "
               required
             />
+            <span className="text-xs opacity-70 mt-1">Between 25 and 1000 points</span>
           </section>
           <div className=" w-full  gap-2 flow-root">
             <section className="max-h-[350px] w-full overflow-y-auto bg-[#ffffff10] border rounded-lg p-4 grid grid-cols-fluid justify-center gap-4">
@@ -91,13 +85,15 @@ function LiveGameSetup() {
               <>
                 <button
                   onClick={() => {setupPlayers(false)}}
-                  className="w-full md:w-fit sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
+                  disabled={isBusy}
+                  className="disabled:opacity-60 disabled:cursor-wait w-full md:w-fit sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
                 >
-                  Start New Game
+                  {isBusy ? "Starting..." : "Start New Game"}
                 </button>
                 <button
                   onClick={() => {setupPlayers(true)}}
-                  className="w-full md:w-fit sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 -skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
+                  disabled={isBusy}
+                  className="disabled:opacity-60 disabled:cursor-wait w-full md:w-fit sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 -skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
                 >
                   Resume Game
                 </button>
@@ -105,9 +101,10 @@ function LiveGameSetup() {
             ) : (
               <button
                 onClick={() => {setupPlayers(false)}}
-                className=" sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
+                disabled={isBusy}
+                className="disabled:opacity-60 disabled:cursor-wait sec-font text-xl rounded px-16 py-4 bg-[#D30CBD] font-bold  duration-500 skew-x-6 hover:skew-x-0 hover:scale-95 hover:bg-[#d30cbc] "
               >
-                Start Game
+                {isBusy ? "Starting..." : "Start Game"}
               </button>
             )}
           </section>

@@ -20,6 +20,7 @@ export default function Navbar() {
       </Link>
       <Link
         to={`/live-game/how-to-play`}
+        aria-label="How to play"
         className=" text-[#ffffff] hover:underline duration-300 font-bold flex text-xl md:hidden"
       >
         ?

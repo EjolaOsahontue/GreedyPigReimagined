@@ -1,6 +1,7 @@
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { GreedyPigContext } from "src/context/useGreedyPigContext";
 import useImagePreloader from "src/hooks/useImagePreloader";
+import Tutorial from "src/components/Tutorial";
 import pig0 from "src/assets/pig-0.png";
 import pig1 from "src/assets/pig-1.png";
 import pig2 from "src/assets/pig-2.png";
@@ -36,7 +37,7 @@ import dice3 from "src/assets/dice_3.png";
 import dice4 from "src/assets/dice_4.png";
 import dice5 from "src/assets/dice_5.png";
 import dice6 from "src/assets/dice_6.png";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getPigPetNames } from "src/utils/getPigPetNames";
 
 const preloadSrcList = [
@@ -81,7 +82,32 @@ const pigPetNames = getPigPetNames();
 
 function Root() {
   const { imagesPreloaded } = useImagePreloader(preloadSrcList);
-  const [hasSound, setHasSound] = useState(true);
+  const location = useLocation();
+
+  // Sound on or off, remembered between visits.
+  const [hasSound, setHasSound] = useState(() => {
+    try {
+      return localStorage.getItem("gp-sound") !== "off";
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("gp-sound", hasSound ? "on" : "off");
+    } catch {
+      // Storage can be blocked (private window). The game still works, just without remembering.
+    }
+  }, [hasSound]);
+
+  // Show the tutorial whenever the page is loaded or reloaded on the home page.
+  const [showTutorial, setShowTutorial] = useState(() => location.pathname === "/");
+
+  function closeTutorial() {
+    setShowTutorial(false);
+  }
+
   if (!imagesPreloaded) {
     return (
       <>
@@ -100,9 +126,16 @@ function Root() {
         <div className=" rounded-full bg-[#056FA4] blur-[500px] md:blur-[845px] w-[800px] h-[800px] -z-10 fixed -bottom-[700px] -left-[700px] md:-bottom-96 md:-left-96"></div>
         <div className=" rounded-full bg-[#D30CBD] blur-[500px] md:blur-[845px] w-[800px] h-[800px] -z-10 fixed -top-[700px] -right-[700px] md:-top-96 md:-right-96"></div>
         <GreedyPigContext.Provider
-          value={{ preloadSrcList, setHasSound, hasSound, pigPetNames }}
+          value={{
+            preloadSrcList,
+            setHasSound,
+            hasSound,
+            pigPetNames,
+            openTutorial: () => setShowTutorial(true),
+          }}
         >
           <Outlet />
+          {showTutorial && <Tutorial onClose={closeTutorial} />}
         </GreedyPigContext.Provider>
       </main>
     </>

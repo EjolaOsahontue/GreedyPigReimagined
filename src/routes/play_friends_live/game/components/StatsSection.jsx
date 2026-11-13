@@ -15,7 +15,7 @@ function StatsSection({ playerData, currentPlayer }) {
         <figure
           className={` w-[150px] h-[150px] flex justify-center items-center bg-[#ffffff20] p-2 rounded-lg border border-[#FFFFFF40] hover:border-[#ffffff80] duration-300`}
         >
-          <img src={playerData[currentPlayer].avatar} />
+          <img src={playerData[currentPlayer].avatar} alt="" />
         </figure>
         {playerData[currentPlayer].name === ''?playerData[currentPlayer].tag:playerData[currentPlayer].name}'s Turn
   </div>      
@@ -41,7 +41,7 @@ function StatsSection({ playerData, currentPlayer }) {
                 <td className=" text-center p-1">{index + 1}</td>
                 <td className="w-[50px]">
                   <figure className={` h-[40px]  p-2 `}>
-                    <img src={player.avatar} />
+                    <img src={player.avatar} alt=""/>
                   </figure>
                 </td>
                 <td className=" "> {player.name === ''?player.tag:player.name}</td>

@@ -25,3 +25,8 @@
 ::-webkit-scrollbar-thumb {
   /* Customize the scrollbar thumb */
 }
+
+:focus-visible {
+  outline: 3px solid #ffd60a;
+  outline-offset: 3px;
+}
