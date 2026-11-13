@@ -65,9 +65,7 @@ export async function getPlayerStats(name) {
   const turnsQuery = `
     SELECT
       COALESCE(MAX(t.points) FILTER (WHERE t.outcome = 'BANKED'), 0) AS best_turn,
-      COALESCE(MAX(t.points) FILTER (WHERE t.outcome = 'BUSTED'), 0) AS biggest_bust,
-      COUNT(*) FILTER (WHERE t.double_down AND t.outcome = 'BANKED') AS double_downs_won,
-      COUNT(*) FILTER (WHERE t.double_down AND t.outcome = 'BUSTED') AS double_downs_busted
+      COALESCE(MAX(t.points) FILTER (WHERE t.outcome = 'BUSTED'), 0) AS biggest_bust
     FROM turns t
     JOIN game_players gp ON gp.id = t.game_player_id
     JOIN games g ON g.id = t.game_id
@@ -84,9 +82,7 @@ export async function getPlayerStats(name) {
     best_score: Number(playerStats.best_score),
     last_played_at: playerStats.last_played_at,
     best_turn: Number(playerTurns.best_turn),
-    biggest_bust: Number(playerTurns.biggest_bust),
-    double_downs_won: Number(playerTurns.double_downs_won),
-    double_downs_busted: Number(playerTurns.double_downs_busted)
+    biggest_bust: Number(playerTurns.biggest_bust)
   };
 }
 

@@ -31,8 +31,6 @@ CREATE TABLE game_players (
   turn_score          INT NOT NULL DEFAULT 0 CHECK (turn_score >= 0),
   turns_taken         INT NOT NULL DEFAULT 0,
   rolls_this_turn     INT NOT NULL DEFAULT 0,
-  double_down_used    BOOLEAN NOT NULL DEFAULT false,
-  double_down_active  BOOLEAN NOT NULL DEFAULT false,
   UNIQUE (game_id, seat)
 );
 
@@ -46,7 +44,6 @@ CREATE TABLE turns (
   game_id         UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   game_player_id  UUID NOT NULL REFERENCES game_players(id) ON DELETE CASCADE,
   turn_number     INT NOT NULL,
-  double_down     BOOLEAN NOT NULL DEFAULT false,
   points          INT NOT NULL DEFAULT 0,   -- points banked, or turn points lost on a bust
   outcome         turn_outcome NOT NULL DEFAULT 'OPEN',
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),

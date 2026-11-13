@@ -42,11 +42,4 @@ router.post("/:id/finish", rejectBody, async (req, res) => {
   res.json(result);
 });
 
-router.post("/:id/double-down", rejectBody, async (req, res) => {
-    const doubleDownResult = await withTransaction(async (tx) => {
-        return await games.doubleDown(tx, req.params.id);
-    });
-    res.json(doubleDownResult);
-});
-
 export default router;
