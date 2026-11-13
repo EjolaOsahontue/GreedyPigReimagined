@@ -8,7 +8,7 @@ function findVisible(action) {
 }
 
 // R rolls and B banks (passes). It presses the real on-screen button, so every
-// rule that blocks the button (rolling, Double Down lock, game over) blocks the key too.
+// rule that blocks the button (rolling, game over) blocks the key too.
 export default function KeyboardShortcuts() {
   useEffect(() => {
     function onKeyDown(e) {
@@ -22,7 +22,7 @@ export default function KeyboardShortcuts() {
       if (document.querySelector('[aria-modal="true"]')) return; // a pop-up is open
 
       const key = e.key.toLowerCase();
-      const action = { r: "roll", b: "pass", d: "doubledown" }[key];
+      const action = { r: "roll", b: "pass" }[key];
       if (!action) return;
 
       const button = findVisible(action);

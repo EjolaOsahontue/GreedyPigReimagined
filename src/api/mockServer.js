@@ -14,8 +14,11 @@ const LATENCY_MS = 350; // fake network delay so loading states are visible
 const FAILURE_RATE = 0; // set to e.g. 0.2 to test error handling
 const STORAGE_KEY = "greedy-pig-mock-games";
 
-// Double Down rules (group plan). The real server keeps these in one place too.
-const RULES = { ddMultiplier: 2, ddMinRolls: 3, ddPenalty: 5 };
+// Hot Streak rules. The real server keeps these in one place too.
+//   igniteAt:     non-1 rolls in a row (in one turn) that set a player ON FIRE
+//   bonusPerRoll: extra points for every roll made while ON FIRE
+//   bonusCap:     most bonus points one turn can earn
+const RULES = { igniteAt: 3, bonusPerRoll: 2, bonusCap: 10 };
 
 const LIMITS = { minPlayers: 2, maxPlayers: 8, minTarget: 25, maxTarget: 1000, maxName: 20, maxPigIndex: 28 };
 
@@ -100,72 +103,64 @@ function validateCreate({ players, targetScore }) {
 }
 
 // ---- RULES (port these to the real server)
+//
+// HOT STREAK. Roll 3 non-1 numbers in a row in one turn and you are ON FIRE.
+// Every roll after that gets +2 bonus (max +10 bonus per turn). A 1 still wipes the whole turn.
+// It is automatic: there is no button. Because a 1 ends the turn, the streak is simply the
+// number of rolls made so far this turn.
 
-function nextPlayer(game) {
-  game.current_player_index = (game.current_player_index + 1) % game.players.length;
-  game.turn_number += 1;
-  game.rolls_this_turn = 0;
-  game.double_down_active = false;
+// `streak` is the only thing that is stored. The other two fields are worked out from it,
+// so they can never disagree. Only the player whose turn it is can have a streak above 0.
+function setStreak(player, streak) {
+  player.streak = streak;
+  player.on_fire = streak >= RULES.igniteAt;
+  player.bonus_this_turn = Math.min(Math.max(0, streak - RULES.igniteAt) * RULES.bonusPerRoll, RULES.bonusCap);
 }
 
-// Works out what the current player may do, so the UI never has to guess.
-function refreshDerived(game) {
-  const player = game.players[game.current_player_index];
-  const open = game.status === "in_progress";
-  game.turn_multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
-  game.bank_unlock_in = game.double_down_active
-    ? Math.max(0, RULES.ddMinRolls - game.rolls_this_turn)
-    : 0;
-  game.allowed = {
-    roll: open,
-    bank: open && game.bank_unlock_in === 0,
-    double_down: open && !player.double_down_used && !game.double_down_active && game.rolls_this_turn === 0,
-  };
+function nextPlayer(game) {
+  setStreak(game.players[game.current_player_index], 0); // the turn that just ended
+  game.current_player_index = (game.current_player_index + 1) % game.players.length;
+  game.turn_number += 1;
 }
 
 function applyRoll(game, value) {
   const player = game.players[game.current_player_index];
-  const multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
-  game.rolls_this_turn += 1;
   game.last_roll = { value, player_id: player.id };
 
   if (value === 1) {
-    // Bust: lose the unbanked running points, turn passes.
+    // Bust: the whole turn is lost (turn points, streak and bonus) and the turn passes.
     player.running_points = 0;
-    // Double Down: a 1 also costs points from the banked total, never below 0.
-    let penalty = 0;
-    if (multiplier > 1) {
-      penalty = Math.min(RULES.ddPenalty, player.total_points);
-      player.total_points -= penalty;
-    }
     nextPlayer(game);
-    return { outcome: "bust", multiplier, penalty_applied: penalty };
+    return { outcome: "bust", bonus: 0, streak: 0, on_fire: false, caught_fire: false };
   }
 
-  player.running_points += value;
+  // A roll made while already ON FIRE earns the bonus, until the turn has earned the cap.
+  const bonus = player.on_fire && player.bonus_this_turn < RULES.bonusCap ? RULES.bonusPerRoll : 0;
+  setStreak(player, player.streak + 1);
+  // The roll that sets the player on fire gets no bonus itself. The bonus starts with the next roll.
+  const caughtFire = player.streak === RULES.igniteAt;
+  player.running_points += value + bonus;
+  const result = { bonus, streak: player.streak, on_fire: player.on_fire, caught_fire: caughtFire };
 
-  // Reaching the target ends the game immediately, no need to bank first.
-  // Under Double Down the turn points count double towards the target.
-  const worth = player.running_points * multiplier;
-  if (player.total_points + worth >= game.target_score) {
-    player.total_points += worth;
+  // Reaching the target ends the game immediately, no need to bank first. The bonus counts.
+  if (player.total_points + player.running_points >= game.target_score) {
+    player.total_points += player.running_points;
     player.running_points = 0;
     game.status = "finished";
     game.winner_id = player.id;
-    return { outcome: "win", multiplier, penalty_applied: 0 };
+    return { outcome: "win", ...result };
   }
-  return { outcome: "continue", multiplier, penalty_applied: 0 };
+  return { outcome: "continue", ...result };
 }
 
 function applyBank(game) {
   // Banking with 0 running points is allowed (it just passes the turn), same as the base game.
   const player = game.players[game.current_player_index];
-  const multiplier = game.double_down_active ? RULES.ddMultiplier : 1;
-  const pointsBanked = player.running_points * multiplier;
+  const pointsBanked = player.running_points;
   player.total_points += pointsBanked;
   player.running_points = 0;
   nextPlayer(game);
-  return { player_id: player.id, points_banked: pointsBanked, multiplier };
+  return { player_id: player.id, points_banked: pointsBanked };
 }
 
 // ---- public API (same signatures as httpClient.js)
@@ -180,11 +175,6 @@ export async function createGame({ players, targetScore }) {
     target_score: targetScore,
     current_player_index: 0,
     turn_number: 1,
-    rolls_this_turn: 0,
-    double_down_active: false,
-    turn_multiplier: 1,
-    bank_unlock_in: 0,
-    allowed: null, // filled in by refreshDerived below
     last_roll: null,
     winner_id: null,
     players: players.map((p) => ({
@@ -193,12 +183,13 @@ export async function createGame({ players, targetScore }) {
       pig_index: p.pig_index,
       running_points: 0,
       total_points: 0,
-      double_down_used: false,
+      streak: 0,
+      on_fire: false,
+      bonus_this_turn: 0,
     })),
     created_at: now,
     updated_at: now,
   };
-  refreshDerived(game);
   games.set(game.id, game);
   persist();
   return { game: clone(game) };
@@ -215,8 +206,7 @@ export async function rollDice(gameId) {
   assertInProgress(game);
   const value = rollOneDie();
   const rollerId = game.players[game.current_player_index].id;
-  const result = applyRoll(game, value); // { outcome, multiplier, penalty_applied }
-  refreshDerived(game);
+  const result = applyRoll(game, value); // { outcome, bonus, streak, on_fire, caught_fire }
   game.updated_at = new Date().toISOString();
   persist();
   return { roll: { value, player_id: rollerId, ...result }, game: clone(game) };
@@ -226,50 +216,10 @@ export async function bankPoints(gameId) {
   await simulateNetwork();
   const game = getOrThrow(gameId);
   assertInProgress(game);
-  if (game.bank_unlock_in > 0) {
-    const n = game.bank_unlock_in;
-    throw new ApiError({
-      status: 409,
-      code: "BANK_LOCKED",
-      message: `Double Down is active: roll ${n} more time${n === 1 ? "" : "s"} before banking`,
-    });
-  }
   const bank = applyBank(game);
-  refreshDerived(game);
   game.updated_at = new Date().toISOString();
   persist();
   return { bank, game: clone(game) };
-}
-
-export async function doubleDown(gameId) {
-  await simulateNetwork();
-  const game = getOrThrow(gameId);
-  assertInProgress(game);
-  const player = game.players[game.current_player_index];
-  if (player.double_down_used) {
-    throw new ApiError({ status: 409, code: "DOUBLE_DOWN_USED", message: "Double Down already used" });
-  }
-  if (game.double_down_active || game.rolls_this_turn > 0) {
-    throw new ApiError({
-      status: 409,
-      code: "DOUBLE_DOWN_TOO_LATE",
-      message: "Declare Double Down before your first roll of the turn",
-    });
-  }
-  player.double_down_used = true;
-  game.double_down_active = true;
-  refreshDerived(game);
-  game.updated_at = new Date().toISOString();
-  persist();
-  return {
-    double_down: {
-      player_id: player.id,
-      multiplier: RULES.ddMultiplier,
-      min_rolls: RULES.ddMinRolls,
-      penalty: RULES.ddPenalty,
-    },
-    game: clone(game),
-  };
 }
 
 // ---- COMPETITION (Member 4): leaderboard, player stats, match history

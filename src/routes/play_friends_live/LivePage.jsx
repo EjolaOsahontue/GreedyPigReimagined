@@ -20,14 +20,6 @@ function LiveGamePage() {
   const [winnerId, setWinnerId] = useState(null); // set by the server when someone reaches the target
   const [isBusy, setIsBusy] = useState(false); // true while an API request is in flight
   const [apiError, setApiError] = useState(null); // last ApiError, shown by <ApiErrorBanner />
-  // What the server says about the current turn (Double Down flag, bank lock, allowed buttons).
-  const [gameMeta, setGameMeta] = useState({
-    doubleDownActive: false,
-    turnMultiplier: 1,
-    bankUnlockIn: 0,
-    rollsThisTurn: 0,
-    allowed: { roll: true, bank: true, doubleDown: false },
-  });
   const [feedback, setFeedback] = useState(null); // short message for the player, shown by <FeedbackMessage />
   const [lastEvent, setLastEvent] = useState(null); // latest thing that happened, for sounds and screen readers
   
@@ -72,8 +64,6 @@ function LiveGamePage() {
             setIsBusy,
             apiError,
             setApiError,
-            gameMeta,
-            setGameMeta,
             feedback,
             setFeedback,
             lastEvent,

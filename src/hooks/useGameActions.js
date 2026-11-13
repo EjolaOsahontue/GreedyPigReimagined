@@ -5,9 +5,7 @@ import useAudio from "src/hooks/useAudio";
 import bankSound from "src/sound_effect/bank.mp3";
 import loseSound from "src/sound_effect/lose_sound.mp3";
 import celebrationSound from "src/sound_effect/celebration.mp3";
-import ddDeclaredSound from "src/sound_effect/double_down_declared.mp3";
-import ddBustSound from "src/sound_effect/double_down_bust.mp3";
-
+import { HOT_STREAK } from "src/utils/hotStreak";
 
 const GAME_OVER_DELAY_MS = 1000; // same pause the base game used before the winner screen
 
@@ -28,7 +26,6 @@ export default function useGameActions() {
     setWinnerId,
     setIsBusy,
     setApiError,
-    setGameMeta,
     setFeedback,
     setLastEvent,
   } = useLiveGameContext();
@@ -36,8 +33,6 @@ export default function useGameActions() {
   const bankAudio = useAudio(bankSound);
   const loseAudio = useAudio(loseSound);
   const celebrationAudio = useAudio(celebrationSound);
-  const ddDeclaredAudio = useAudio(ddDeclaredSound);
-  const ddBustAudio = useAudio(ddBustSound);
   const gameOverTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(gameOverTimer.current), []);
@@ -98,22 +93,13 @@ export default function useGameActions() {
         id: serverPlayer.id,
         running_points: serverPlayer.running_points,
         total_points: serverPlayer.total_points,
-        double_down_used: serverPlayer.double_down_used,
+        // Hot Streak. An older server does not send these yet, so they fall back to "no streak".
+        streak: serverPlayer.streak ?? 0,
+        on_fire: Boolean(serverPlayer.on_fire),
+        bonus_this_turn: serverPlayer.bonus_this_turn ?? 0,
       }))
     );
     setCurrentPlayer(game.current_player_index);
-    // The server decides what is allowed. The screen only shows it.
-    setGameMeta({
-      doubleDownActive: game.double_down_active,
-      turnMultiplier: game.turn_multiplier,
-      bankUnlockIn: game.bank_unlock_in,
-      rollsThisTurn: game.rolls_this_turn,
-      allowed: {
-        roll: game.allowed.roll,
-        bank: game.allowed.bank,
-        doubleDown: game.allowed.double_down,
-      },
-    });
   }
 
   // Setup screen: create the game on the server. Returns true on success.
@@ -150,31 +136,51 @@ export default function useGameActions() {
   // Reveal the outcome of a roll once the animation has ended.
   function showRollResult({ roll: rolled, game }) {
     const name = nameOf(rolled.player_id);
+    // How the player stood BEFORE this roll (this function runs with the screen as it was at the click).
+    const before = playerData.find((p) => p.id === rolled.player_id);
+    const lostPoints = before ? before.running_points : 0;
+    const wasOnFire = Boolean(before?.on_fire);
+
     syncGame(game);
     setDiceValue(rolled.value);
+
     const roller = game.players.find((p) => p.id === rolled.player_id);
+    const bonus = rolled.bonus ?? 0; // an older server does not send the Hot Streak fields
+    const caughtFire = Boolean(rolled.caught_fire);
+    const bonusMaxed = bonus > 0 && (roller?.bonus_this_turn ?? 0) >= HOT_STREAK.bonusCap;
+
+    // Everything Hot Streak related that sounds and screen reader text can hook into.
     emit({
       type: "roll",
       player_id: rolled.player_id,
       value: rolled.value,
       outcome: rolled.outcome,
+      bonus,
+      streak: rolled.streak ?? 0,
+      on_fire: Boolean(rolled.on_fire),
+      caught_fire: caughtFire,
+      bonus_maxed: bonusMaxed,
+      was_on_fire: wasOnFire,
+      lost_points: lostPoints,
       turn_total: roller ? roller.running_points : 0,
-      multiplier: rolled.multiplier,
-      penalty_applied: rolled.penalty_applied,
     });
+
+    // Member 3: the ON FIRE sound goes where caughtFire is true, the bonus tick where bonus > 0.
     if (rolled.outcome === "bust") {
-      (rolled.multiplier > 1 ? ddBustAudio : loseAudio)?.play();
-      if (rolled.multiplier > 1) {
-        say(
-          "bad",
-          rolled.penalty_applied > 0
-            ? `${name} rolled a 1 under Double Down: turn points lost and ${rolled.penalty_applied} taken from their total.`
-            : `${name} rolled a 1 under Double Down: turn points lost. Nothing to take from their total.`
-        );
+      loseAudio?.play();
+      if (wasOnFire) {
+        say("bad", `${name} rolled a 1: ${lostPoints} turn points lost and the ON FIRE streak is over.`);
+      } else if (lostPoints > 0) {
+        say("bad", `${name} rolled a 1 and lost ${lostPoints} turn points.`);
       } else {
-        say("bad", `${name} rolled a 1 and lost their turn points.`);
+        say("bad", `${name} rolled a 1.`);
       }
+    } else if (caughtFire) {
+      say("good", `${name} is ON FIRE! Every roll now gets +${HOT_STREAK.bonusPerRoll} bonus, up to +${HOT_STREAK.bonusCap} per turn.`);
+    } else if (bonusMaxed) {
+      say("info", `${name} has earned the full +${HOT_STREAK.bonusCap} bonus this turn.`);
     }
+
     if (rolled.outcome === "win") {
       setWinnerId(game.winner_id);
       gameOverTimer.current = setTimeout(() => {
@@ -193,27 +199,10 @@ export default function useGameActions() {
     const name = nameOf(banked.player_id);
     if (banked.points_banked > 0) bankAudio?.play();
     syncGame(game);
-    emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked, multiplier: banked.multiplier });
+    emit({ type: "bank", player_id: banked.player_id, points_banked: banked.points_banked });
     if (banked.points_banked === 0) say("info", `${name} passed the turn.`);
-    else if (banked.multiplier > 1) say("good", `${name} banked ${banked.points_banked} (Double Down x${banked.multiplier}).`);
     else say("good", `${name} banked ${banked.points_banked}.`);
   }
 
-  // Double Down button: declare before the first roll of a turn.
-  // The server checks the rules; if it says no, the error banner shows its message.
-  async function declareDoubleDown() {
-    if (!requireGame()) return;
-    const result = await run(() => gameApi.doubleDown(gameId));
-    if (!result) return;
-    const { double_down: dd, game } = result;
-    syncGame(game);
-    ddDeclaredAudio?.play();
-    emit({ type: "double_down_declared", player_id: dd.player_id, multiplier: dd.multiplier, min_rolls: dd.min_rolls, penalty: dd.penalty });
-    say(
-      "info",
-      `${nameOf(dd.player_id)} declared Double Down: roll at least ${dd.min_rolls} times before banking. Banked points count x${dd.multiplier}, but a 1 also costs ${dd.penalty} points.`
-    );
-  }
-
-  return { startGame, roll, showRollResult, bank, declareDoubleDown, isBusy };
+  return { startGame, roll, showRollResult, bank, isBusy };
 }

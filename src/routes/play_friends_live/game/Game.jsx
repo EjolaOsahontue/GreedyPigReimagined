@@ -9,8 +9,9 @@ import StatsSectionMobile from "./components/StatsSectionMobile";
 import CurrentPlayerMobile from "./components/CurrentPlayerMobile";
 import DiceSectionMobile from "./components/DiceSectionMobile";
 import ApiErrorBanner from "src/components/ApiErrorBanner";
-import DoubleDownBanner from "src/components/DoubleDownBanner";
 import FeedbackMessage from "src/components/FeedbackMessage";
+import HotStreakBanner from "src/components/HotStreakBanner";
+import BonusPopup from "src/components/BonusPopup";
 import ScreenReaderAnnouncer from "src/components/ScreenReaderAnnouncer";
 import KeyboardShortcuts from "src/components/KeyboardShortcuts";
 
@@ -25,12 +26,13 @@ export default function LiveGame() {
     <div className="md:grid md:grid-cols-[minmax(auto,_200px)_1fr_minmax(auto,_200px)] lg:grid-cols-[minmax(auto,_250px)_1fr_minmax(auto,_250px)] xl:grid-cols-[auto_1fr_minmax(auto,_300px)] relative">
       <ApiErrorBanner showSetupLink />
       <FeedbackMessage />
+      <BonusPopup />
        <ScreenReaderAnnouncer />
        <KeyboardShortcuts />
       <DiceSection />
       <div className=" space-y-2 p-2">
         <Navbar />
-        <DoubleDownBanner />
+        <HotStreakBanner />
         <PlayerTable playerData={playerData} currentPlayer={currentPlayer} />
       </div>
       <CurrentPlayerMobile playerData={playerData} currentPlayer={currentPlayer}/>

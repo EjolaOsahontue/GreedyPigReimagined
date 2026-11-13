@@ -64,5 +64,3 @@ export const getPlayerStats = (name) => request("GET", `/players/${encodeURIComp
 
 export const getPlayerHistory = (name, { limit = 10 } = {}) =>
   request("GET", `/players/${encodeURIComponent(name)}/history?limit=${limit}`);
-
-export const doubleDown = (gameId) => request("POST", `/games/${encodeURIComponent(gameId)}/double-down`);
