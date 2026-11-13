@@ -1,15 +1,38 @@
-# Greedy Pig API Contract (DRAFT v0.3: Double Down + schema mapping)
+# Greedy Pig API Contract (DRAFT v0.4: Hot Streak)
 
 Maintained by Member 2 (frontend) for Member 1 (backend) to review and correct. The frontend is already coded
 against this through `src/api/mockServer.js`, so any change should be made in both places.
-Rules for Double Down come from the group plan ("Improvement 1: Double Down").
+**Hot Streak replaces Double Down** (change of plans). `applyRoll()` in `mockServer.js` is the reference
+implementation of the rule.
 
-**Principle:** the server owns all game rules. The client never sends a dice value, a score or a multiplier.
-It only asks for actions ("roll", "bank", "double down") and renders the game object it gets back. It also does
-not work out what is allowed: the server says so in `game.allowed`.
+**Principle:** the server owns all game rules. The client never sends a dice value, a score or a bonus.
+It only asks for actions ("roll", "bank") and renders the game object it gets back.
 
 Base path: `/api/v1`. All bodies are JSON. Field names are `snake_case` to match the base game's existing
 player fields (`running_points`, `total_points`, `pig_index`).
+
+---
+
+## The Hot Streak rule
+
+- Roll **3 non-1 numbers in a row** in one turn and you are **ON FIRE**.
+- **Every roll after that gets +2 bonus**, up to **+10 bonus per turn** (so rolls 4 to 8 of a turn).
+- A **1 still wipes the whole turn**: turn points, streak and bonus. The turn passes.
+- It is **automatic**. There is no button and no extra endpoint.
+- The roll that sets you on fire gets no bonus itself. The bonus starts with the next roll.
+- The bonus is part of the turn points, so it is banked with them and it counts towards the winning score.
+- A 1 ends the turn, so the **streak is simply the number of rolls made so far this turn**.
+
+Example turn: rolls 4, 3, 5, 6, 2, then a 1.
+
+| Roll | Value | Bonus | Turn points | Streak | Note |
+|---|---|---|---|---|---|
+| 1 | 4 | 0 | 4 | 1 | |
+| 2 | 3 | 0 | 7 | 2 | |
+| 3 | 5 | 0 | 12 | 3 | ON FIRE (`caught_fire`), no bonus yet |
+| 4 | 6 | +2 | 20 | 4 | |
+| 5 | 2 | +2 | 24 | 5 | banking now adds 24 to the total |
+| 6 | 1 | 0 | 0 | 0 | bust: all 24 turn points lost, turn passes |
 
 ---
 
@@ -21,20 +44,19 @@ player fields (`running_points`, `total_points`, `pig_index`).
   "status": "in_progress",
   "target_score": 100,
   "current_player_index": 0,
-  "turn_number": 1,
-  "rolls_this_turn": 2,
-  "double_down_active": true,
-  "turn_multiplier": 2,
-  "bank_unlock_in": 1,
-  "allowed": { "roll": true, "bank": false, "double_down": false },
+  "turn_number": 3,
   "last_roll": { "value": 4, "player_id": "p-uuid" },
   "winner_id": null,
   "players": [
     { "id": "p-uuid", "name": "Ada", "pig_index": 0,
-      "running_points": 9, "total_points": 20, "double_down_used": true }
+      "running_points": 24, "total_points": 12,
+      "streak": 5, "on_fire": true, "bonus_this_turn": 4 },
+    { "id": "q-uuid", "name": "", "pig_index": 1,
+      "running_points": 0, "total_points": 30,
+      "streak": 0, "on_fire": false, "bonus_this_turn": 0 }
   ],
-  "created_at": "2026-11-05T10:00:00.000Z",
-  "updated_at": "2026-11-05T10:00:05.000Z"
+  "created_at": "2026-11-13T10:00:00.000Z",
+  "updated_at": "2026-11-13T10:00:05.000Z"
 }
 ```
 
@@ -42,23 +64,19 @@ player fields (`running_points`, `total_points`, `pig_index`).
 |---|---|
 | `status` | `"in_progress"` or `"finished"` |
 | `current_player_index` | index into `players`; whose turn it is |
-| `rolls_this_turn` | rolls made by the current player this turn. Resets to 0 when the turn passes. |
-| `double_down_active` | true while the **current** player's turn is under Double Down. Resets to false when the turn passes. |
-| `turn_multiplier` | `2` while `double_down_active`, otherwise `1`. What the current turn's points are worth when banked. The client multiplies nothing itself except to preview "turn points x multiplier". |
-| `bank_unlock_in` | rolls still needed before banking is allowed. `0` when Double Down is not active or the lock is over. Server computes it, the client only shows it. |
-| `allowed` | what the current player may do right now (see below). The client uses it to enable or grey out buttons. |
-| `players[].double_down_used` | true once that player has declared Double Down in this game (one use per game) |
-| `last_roll` | `null` until the first roll |
+| `players[].streak` | non-1 rolls in a row this turn. **Always 0 for every player except the one whose turn it is.** |
+| `players[].on_fire` | `streak >= 3` |
+| `players[].bonus_this_turn` | bonus points earned so far this turn: `min(max(streak - 3, 0) * 2, 10)` |
+| `players[].running_points` | turn points **including** any bonus |
 | `winner_id` | `null` until `status` is `finished` |
-| `name` | 0 to 20 characters. **Blank is allowed** (`''`): the screen then shows a pig nickname, and the leaderboard ignores unnamed players. The frontend sends exactly what was typed (trimmed). |
+| `name` | 0 to 20 characters. **Blank is allowed**: the screen then shows a pig nickname, and the leaderboard ignores unnamed players. |
 | `pig_index` | which pig picture. The server stores only the number; the client maps it to an image. |
 
-`allowed` is computed by the server after every action:
-- `roll`: game is `in_progress`
-- `bank`: game is `in_progress` and `bank_unlock_in === 0`
-- `double_down`: game is `in_progress`, current player has `double_down_used === false`, `double_down_active` is false and `rolls_this_turn === 0`
+`on_fire` and `bonus_this_turn` are worked out from `streak`, so the server only needs to store `streak`
+(its `game_players.rolls_this_turn` column does exactly that).
 
-The endpoints still **enforce** these rules and return errors. `allowed` only saves the UI from guessing.
+**Removed with Double Down** (the frontend no longer reads them, so the server may stop sending them):
+`rolls_this_turn`, `double_down_active`, `turn_multiplier`, `bank_unlock_in`, `allowed`, `players[].double_down_used`.
 
 ---
 
@@ -79,38 +97,29 @@ No body. The **server** generates the value (CSPRNG, e.g. `crypto.randomInt(1, 7
 Response `200`:
 ```json
 {
-  "roll": { "value": 1, "outcome": "bust", "player_id": "p-uuid",
-            "multiplier": 2, "penalty_applied": 5 },
+  "roll": { "value": 6, "bonus": 2, "outcome": "continue", "player_id": "p-uuid",
+            "streak": 4, "on_fire": true, "caught_fire": false },
   "game": <Game after the roll>
 }
 ```
 | `roll` field | Meaning |
 |---|---|
+| `value` | the die, 1 to 6 |
+| `bonus` | extra points added by this roll: `2` or `0`. The turn gained `value + bonus` points. Always `0` on a 1. |
 | `outcome` | `"continue"`, `"bust"` or `"win"` |
-| `multiplier` | `2` if Double Down was active when this roll happened, otherwise `1`. (Needed because a bust ends the turn and clears the flag in `game`.) |
-| `penalty_applied` | points actually taken from `total_points` by the Double Down penalty. `0` unless the roll was a 1 under Double Down. Never more than the player had. |
+| `streak` | the player's streak **after** this roll (`0` after a 1) |
+| `on_fire` | `true` if the player is ON FIRE after this roll |
+| `caught_fire` | `true` only on the roll that took the streak from 2 to 3 (the roll that sets the player on fire) |
 
-### 4. `POST /games/:id/bank`: bank running points and pass the turn
+### 4. `POST /games/:id/bank`: bank the turn points and pass the turn
 No body. Response `200`:
 ```json
 {
-  "bank": { "player_id": "p-uuid", "points_banked": 24, "multiplier": 2 },
+  "bank": { "player_id": "p-uuid", "points_banked": 24 },
   "game": <Game after the bank>
 }
 ```
-`points_banked` is what was added to `total_points` (already multiplied). Rejected with `409 BANK_LOCKED` while `bank_unlock_in > 0`.
-
-### 5. `POST /games/:id/double-down`: declare Double Down (NEW)
-No body. The server checks, in this order: game is in progress, player has not used it, it is not already active and no roll has been made this turn.
-On success it sets `double_down_active = true` and the player's `double_down_used = true`.
-Response `200`:
-```json
-{
-  "double_down": { "player_id": "p-uuid", "multiplier": 2, "min_rolls": 3, "penalty": 5 },
-  "game": <Game after declaring>
-}
-```
-`min_rolls` and `penalty` are sent so the UI text always matches the server's current rule values (the group may tune the penalty from 5 to 3 after playtesting).
+`points_banked` is what was added to `total_points` (the turn points, bonus included).
 
 ---
 
@@ -118,32 +127,27 @@ Response `200`:
 
 | Action | Result |
 |---|---|
-| Roll a **1** (normal) | `running_points` set to 0, turn passes, `outcome: "bust"` |
-| Roll a **1** under Double Down | Same as above **and** `penalty_applied = min(5, total_points)` is taken from `total_points` (never below 0). Flag clears with the turn. |
-| Roll **2 to 6** | added to `running_points`. Win check uses the multiplier: if `total_points + running_points * multiplier >= target_score`, add `running_points * multiplier` to `total_points`, set `running_points` to 0, `status` to `finished`, set `winner_id`, `outcome: "win"`. Otherwise `outcome: "continue"`. |
-| **Bank** | `points_banked = running_points * multiplier`; `total_points += points_banked`; `running_points = 0`; turn passes. Banking 0 is allowed (it just passes the turn). Blocked while the Double Down lock is on. |
-| **Double Down lock** | Once declared, the player must roll **3** times before they can bank (`bank_unlock_in = max(0, 3 - rolls_this_turn)`). |
-| Turn passes | `current_player_index = (current_player_index + 1) % players.length`; `turn_number += 1`; `rolls_this_turn = 0`; `double_down_active = false` |
-| Finished game | `roll`, `bank` and `double-down` return `409 GAME_FINISHED` |
-
-**Worked example (from the group plan):** player has 20 banked, declares Double Down, rolls 4, 5, 3 (turn total 12) and banks:
-`points_banked = 24`, `total_points = 44`. If the third roll had been a 1 instead: the 9 turn points are lost,
-`penalty_applied = 5`, and `total_points` goes from 20 to 15.
+| Roll a **1** | `running_points = 0`, streak and bonus gone, turn passes, `outcome: "bust"`, `bonus: 0` |
+| Roll **2 to 6** | `bonus = 2` if the player was ON FIRE before this roll **and** `bonus_this_turn` is still below 10, otherwise `0`. Then `streak += 1` and `running_points += value + bonus`. |
+| Win check | after a roll, if `total_points + running_points >= target_score`: add `running_points` to `total_points`, set `running_points = 0`, `status = finished`, set `winner_id`, `outcome: "win"`. The bonus counts. |
+| **Bank** | `total_points += running_points`, `running_points = 0`, turn passes. Banking 0 is allowed (it just passes the turn). Never blocked. |
+| Turn passes | `current_player_index = (current_player_index + 1) % players.length`, `turn_number += 1`, the player who just finished goes back to `streak = 0` |
+| Finished game | `roll` and `bank` return `409 GAME_FINISHED` |
 
 ## Validation
 
 | Field | Rule |
 |---|---|
 | `players` | array of 2 to 8 |
-| `players[].name` | string, at most 20 characters after trim. Blank is allowed. The database must **not** have `CHECK (length(trim(display_name)) > 0)` on `game_players`; `display_name VARCHAR(20) NOT NULL DEFAULT ''` is right. |
-| `players[].pig_index` | integer 0 to 28 (stored in `game_players.pig_index`) |
+| `players[].name` | string, at most 20 characters after trim. Blank is allowed. |
+| `players[].pig_index` | integer 0 to 28 |
 | `target_score` | integer 25 to 1000 |
 
 ## Errors
 
 Every error has the same shape:
 ```json
-{ "error": { "code": "DOUBLE_DOWN_USED", "message": "Double Down already used" } }
+{ "error": { "code": "GAME_FINISHED", "message": "This game is already over" } }
 ```
 `VALIDATION_ERROR` also carries `"fields": { "target_score": "..." }`. The `message` is shown to the player as it is, so keep it short and clear.
 
@@ -151,58 +155,48 @@ Every error has the same shape:
 |---|---|---|---|
 | 400 | `VALIDATION_ERROR` | Please fix the highlighted fields | bad input |
 | 404 | `GAME_NOT_FOUND` | Game not found | unknown game id |
-| 409 | `GAME_FINISHED` | This game is already over | any action on a finished game |
-| 409 | `DOUBLE_DOWN_USED` | Double Down already used | player declared it earlier in this game |
-| 409 | `DOUBLE_DOWN_TOO_LATE` | Declare Double Down before your first roll of the turn | already rolled this turn, or already active |
-| 409 | `BANK_LOCKED` | Double Down is active: roll N more time(s) before banking | bank while `bank_unlock_in > 0` |
+| 409 | `GAME_FINISHED` | This game is already over | roll or bank on a finished game |
 | 500 | `INTERNAL_ERROR` | Something went wrong | anything unexpected |
 
 The client adds one more code itself, `NETWORK_ERROR` (status 0), when the server cannot be reached or times out.
 
-## Mapping to Member 1's database schema
+## Mapping to the database schema
 
-The JSON above is the contract, so the API should **serialize** database rows into it (the screen never sees column names).
+The JSON above is the contract, so the API serializes database rows into it.
 
 | Contract field | Database |
 |---|---|
-| `game.id` | `games.id` |
-| `game.status` | `games.status` (`IN_PROGRESS` / `FINISHED`). The frontend does not read it, so either letter case is fine. |
-| `game.target_score` | `games.target_score` |
 | `game.current_player_index` | `games.current_seat` |
 | `game.winner_id` | `games.winner_player_id` |
 | `game.players[]` | `game_players` **ordered by `seat`** (the screen matches players by position) |
-| `players[].id` | `game_players.id` |
 | `players[].name` | `game_players.display_name` |
 | `players[].total_points` | `game_players.total_score` |
-| `players[].running_points` | `game_players.turn_score` |
-| `players[].double_down_used` | `game_players.double_down_used` |
-| `game.rolls_this_turn` | current seat's `game_players.rolls_this_turn` |
-| `game.double_down_active` | current seat's `game_players.double_down_active` |
-| `game.turn_multiplier`, `game.bank_unlock_in`, `game.allowed` | computed from the rows above (not stored) |
-| `players[].pig_index` | `game_players.pig_index` |
-| `game.turn_number` | `games.turn_number` (not read by the frontend) |
-| `game.last_roll` | `{ value: games.last_roll_value, player_id: games.last_roll_player_id }` or `null` (not read by the frontend) |
+| `players[].running_points` | `game_players.turn_score` (bonus included) |
+| `players[].streak` | `game_players.rolls_this_turn` for the **current seat**, `0` for every other seat |
+| `players[].on_fire`, `players[].bonus_this_turn` | computed from `streak` (not stored) |
 
 Notes for the server:
-- **Clamp the Double Down penalty.** `total_score` has `CHECK (total_score >= 0)`, so use `GREATEST(total_score - 5, 0)` and report the amount actually taken as `penalty_applied`. A plain subtraction would crash with a database error.
-- **Clear the turn flags whenever a turn ends** (bank or bust): `rolls_this_turn = 0`, `double_down_active = false`, `turn_score = 0`.
+- **`rolls_this_turn` must go up on every non-1 roll and go back to 0 on a bust and on a bank.** That is the streak.
+- **Add the bonus to `turn_score`** (`turn_score += value + bonus`). `turns.points` then holds the bonus too, both for a bank and for the points lost on a bust.
+- **Delete Double Down:** the `double_down_used` and `double_down_active` columns, `turns.double_down`, `POST /games/:id/double-down`, the Double Down code in `gameService.js`, `statsService.js`, `scripts/test-everything.js` and `scripts/seed-sample.js`.
 - **Lock the game row** inside each action (`SELECT ... FOR UPDATE` in a transaction) so a double click cannot roll or bank twice.
-- **`turns` rows for stats:** `double_down = true` with outcome `BANKED` counts as a Double Down won, and `BUSTED` as a Double Down busted (Member 4's stats line).
-- **Finishing:** the roll that reaches the target sets `status = FINISHED` and `winner_player_id` (the screen needs `winner_id` straight away). `POST /games/:id/finish` should then write `results` from the database only (no request body), refuse if the game is not `FINISHED`, and be safe to call twice (your `UNIQUE (game_id, game_player_id)` already handles that).
+- **The winning roll saves the results** in the same transaction (already implemented, keep it).
 
 ## CORS and config
-- Backend must allow the deployed frontend origin (and `http://localhost:5173` for dev).
+- Backend must allow the deployed frontend origin (and `http://localhost:5173` for dev). In `FRONTEND_URL`, separate origins with a comma and **no spaces**.
 - Frontend reads `VITE_API_URL` (backend origin, no trailing slash) and `VITE_USE_MOCK=false` in production.
 
 ## For other members
-- **Member 3 (sounds):** the frontend exposes a `lastEvent` in the live game context: `{ id, type, ... }` with types `roll`, `bust`, `bank`, `win`, `double_down_declared`. Play sounds off that.
-- **Member 4 (stats):** "Double Downs won and busted" needs the server to count them. Suggested: a bank under Double Down = "won", a bust under Double Down = "busted", stored per player per game in `results`.
+- **Member 3 (sounds and screen reader):** the frontend puts every roll in `lastEvent` in the live game context:
+  `{ id, type: "roll", player_id, value, outcome, bonus, streak, on_fire, caught_fire, bonus_maxed, was_on_fire, lost_points, turn_total }`.
+  Use `caught_fire` for the ON FIRE sound, `bonus > 0` for the bonus tick, and `bonus_maxed` for the "bonus capped" moment.
+  `bank` events carry `points_banked`. The message box on screen is already a live region, so reuse it for screen reader text.
+- **Member 4 (stats):** Double Down stats no longer exist. Remove "Double Downs won and busted" from the stats page.
 
 ## Open questions for Member 1
-1. **Win check under Double Down.** This draft counts `running_points * 2` toward the target (so the reward is consistent). Confirm, or tell us if the win check should use the raw turn points.
-2. **Penalty value.** 5 for now, kept in one constant so it can drop to 3 after playtesting.
+1. **Streak = `rolls_this_turn`** and everything else computed from it: OK?
+2. **The bonus counts towards the win check**, as in the example above. Confirm.
 3. **Who may act on a game?** Right now anyone with the game id can roll or bank. Fine for pass-and-play on one device.
-4. **Who calls `/finish`?** Either the roll that wins calls it internally, or the frontend calls it once after a win. Please pick one and tell Member 4 and me, otherwise no result gets saved.
 
 ---
 
