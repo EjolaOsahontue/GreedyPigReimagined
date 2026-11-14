@@ -14,7 +14,7 @@ export default function HotStreakBanner() {
 
   if (player.on_fire) {
     return (
-      <div className="w-full rounded-lg border-2 border-[#FBBF24] bg-[#C2410C] text-white text-center p-3">
+      <div className="fire-banner w-full rounded-lg border-2 border-[#FBBF24] bg-[#C2410C] text-white text-center p-3">
         <p className="font-bold tracking-wide text-base lg:text-xl">
           <span aria-hidden="true">🔥 </span>ON FIRE! +{HOT_STREAK.bonusPerRoll} on every roll
         </p>
@@ -25,8 +25,11 @@ export default function HotStreakBanner() {
     );
   }
 
+  // No glow at streak 0. It warms up as the circles fill.
+  const glow = streak >= 2 ? "streak-glow-2" : streak === 1 ? "streak-glow-1" : "";
+
   return (
-    <div className="w-full rounded-lg border border-[#ffffff40] bg-[#ffffff10] text-white p-2 flex flex-wrap items-center justify-between gap-2">
+    <div className={`${glow} w-full rounded-lg border border-[#ffffff40] bg-[#ffffff10] text-white p-2 flex flex-wrap items-center justify-between gap-2`}>
       <span className="text-sm lg:text-base">
         {name}: streak <strong>{streak}</strong>
       </span>

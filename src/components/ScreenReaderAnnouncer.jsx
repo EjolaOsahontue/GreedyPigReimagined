@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLiveGameContext } from "src/context/useLiveGameContext";
+import { HOT_STREAK } from "src/utils/hotStreak";
 
 const nameOf = (player) => (player ? player.name || player.tag : "Player");
 
@@ -18,13 +19,17 @@ export default function ScreenReaderAnnouncer() {
     const next = nameOf(playerData[currentPlayer]);
     let text = "";
 
-    if (lastEvent.type === "roll") {
+        if (lastEvent.type === "roll") {
+      const bonusText = lastEvent.bonus > 0 ? `, plus ${lastEvent.bonus} bonus` : "";
       if (lastEvent.outcome === "continue") {
-        text = `${actor} rolled ${lastEvent.value}. Turn total ${lastEvent.turn_total}.`;
+        text = `${actor} rolled ${lastEvent.value}${bonusText}. Turn total ${lastEvent.turn_total}.`;
+        if (!lastEvent.on_fire && lastEvent.streak > 0) {
+          text += ` Streak ${lastEvent.streak} of ${HOT_STREAK.igniteAt}.`;
+        }
       } else if (lastEvent.outcome === "bust") {
         text = `Now ${next}'s turn.`;
       } else if (lastEvent.outcome === "win") {
-        text = `${actor} rolled ${lastEvent.value} and wins the game.`;
+        text = `${actor} rolled ${lastEvent.value}${bonusText} and wins the game.`;
       }
     }
 

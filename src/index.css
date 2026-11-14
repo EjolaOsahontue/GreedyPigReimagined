@@ -30,3 +30,65 @@
   outline: 3px solid #ffd60a;
   outline-offset: 3px;
 }
+
+
+/* Hot Streak: the banner flares when a player catches fire, then flickers while on fire. */
+@keyframes fire-flare {
+  0% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.9), 0 0 0 0 rgba(249, 115, 22, 0.8);
+    transform: scale(1);
+  }
+  40% {
+    box-shadow: 0 0 30px 12px rgba(251, 191, 36, 0.85), 0 0 60px 28px rgba(249, 115, 22, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 14px 4px rgba(251, 191, 36, 0.5), 0 0 28px 10px rgba(249, 115, 22, 0.3);
+    transform: scale(1);
+  }
+}
+
+@keyframes fire-flicker {
+  0%, 100% { box-shadow: 0 0 14px 4px rgba(251, 191, 36, 0.5), 0 0 28px 10px rgba(249, 115, 22, 0.3); }
+  25% { box-shadow: 0 0 18px 6px rgba(251, 191, 36, 0.6), 0 0 34px 14px rgba(249, 115, 22, 0.38); }
+  50% { box-shadow: 0 0 12px 3px rgba(251, 191, 36, 0.45), 0 0 24px 8px rgba(249, 115, 22, 0.28); }
+  75% { box-shadow: 0 0 20px 7px rgba(251, 191, 36, 0.65), 0 0 38px 16px rgba(249, 115, 22, 0.4); }
+}
+
+.fire-banner {
+  animation: fire-flare 1.2s ease-out 1, fire-flicker 1.4s ease-in-out 1.2s infinite;
+}
+
+/* The "+2" / "ON FIRE!" that fades up under the player table. */
+@keyframes bonus-pop {
+  0% { opacity: 0; transform: translateY(10px) scale(0.9); }
+  15% { opacity: 1; transform: translateY(0) scale(1.08); }
+  25% { transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+
+.bonus-pop {
+  animation: bonus-pop 1.4s ease-out forwards;
+}
+
+/* People who ask their device for less motion get a steady glow and no movement. */
+@media (prefers-reduced-motion: reduce) {
+  .fire-banner {
+    animation: none;
+    box-shadow: 0 0 14px 4px rgba(251, 191, 36, 0.5);
+  }
+  .bonus-pop {
+    animation: none;
+  }
+}
+
+/* Pre-fire glow: off at streak 0, soft at 1, stronger at 2. */
+.streak-glow-1 {
+  box-shadow: 0 0 12px 3px rgba(251, 191, 36, 0.35), 0 0 24px 8px rgba(249, 115, 22, 0.2);
+  transition: box-shadow 0.4s ease;
+}
+.streak-glow-2 {
+  box-shadow: 0 0 18px 6px rgba(251, 191, 36, 0.55), 0 0 36px 14px rgba(249, 115, 22, 0.35);
+  transition: box-shadow 0.4s ease;
+}
