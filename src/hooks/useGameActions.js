@@ -5,7 +5,10 @@ import useAudio from "src/hooks/useAudio";
 import bankSound from "src/sound_effect/bank.mp3";
 import loseSound from "src/sound_effect/lose_sound.mp3";
 import celebrationSound from "src/sound_effect/celebration.mp3";
+import fireSound from "src/sound_effect/on_fire.mp3";
+import bonusSound from "src/sound_effect/bonus_tick.mp3";
 import { HOT_STREAK } from "src/utils/hotStreak";
+
 
 const GAME_OVER_DELAY_MS = 1000; // same pause the base game used before the winner screen
 
@@ -33,6 +36,8 @@ export default function useGameActions() {
   const bankAudio = useAudio(bankSound);
   const loseAudio = useAudio(loseSound);
   const celebrationAudio = useAudio(celebrationSound);
+  const fireAudio = useAudio(fireSound);
+  const bonusAudio = useAudio(bonusSound);
   const gameOverTimer = useRef(null);
 
   useEffect(() => () => clearTimeout(gameOverTimer.current), []);
@@ -165,7 +170,10 @@ export default function useGameActions() {
       turn_total: roller ? roller.running_points : 0,
     });
 
-    // Member 3: the ON FIRE sound goes where caughtFire is true, the bonus tick where bonus > 0.
+    // Sounds: ON FIRE on the roll that sets the player alight, a small tick on every bonus roll.
+    if (caughtFire) fireAudio?.play();
+    else if (bonus > 0) bonusAudio?.play();
+    
     if (rolled.outcome === "bust") {
       loseAudio?.play();
       if (wasOnFire) {

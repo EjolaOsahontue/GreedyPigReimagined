@@ -26,7 +26,6 @@ export default function LiveGame() {
     <div className="md:grid md:grid-cols-[minmax(auto,_200px)_1fr_minmax(auto,_200px)] lg:grid-cols-[minmax(auto,_250px)_1fr_minmax(auto,_250px)] xl:grid-cols-[auto_1fr_minmax(auto,_300px)] relative">
       <ApiErrorBanner showSetupLink />
       <FeedbackMessage />
-      <BonusPopup />
        <ScreenReaderAnnouncer />
        <KeyboardShortcuts />
       <DiceSection />
@@ -34,6 +33,7 @@ export default function LiveGame() {
         <Navbar />
         <HotStreakBanner />
         <PlayerTable playerData={playerData} currentPlayer={currentPlayer} />
+        <BonusPopup />
       </div>
       <CurrentPlayerMobile playerData={playerData} currentPlayer={currentPlayer}/>
       <DiceSectionMobile />
