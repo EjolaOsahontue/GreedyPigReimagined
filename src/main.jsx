@@ -4,13 +4,8 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import "./index.css";
 import Root from "./routes/root";
 import ErrorPage from "./error-page";
-import LiveGameSetup from "./routes/play_friends_live/setup/Setup";
 import Home from "./routes/Home";
-import HowToPlay from "./routes/HowToPlay";
-import LiveGame from "./routes/play_friends_live/game/Game";
 import LiveGamePage from "./routes/play_friends_live/LivePage";
-import Leaderboard from "./routes/Leaderboard";
-import PlayerStats from "./routes/PlayerStats";
 
 const router = createBrowserRouter([
   {
@@ -25,24 +20,24 @@ const router = createBrowserRouter([
         children: [
           {
             path: "setup/",
-            element: <LiveGameSetup />,
+            lazy: async () => ({ Component: (await import("./routes/play_friends_live/setup/Setup")).default }),
           },
           {
             path: "game/",
-            element: <LiveGame />,
+            lazy: async () => ({ Component: (await import("./routes/play_friends_live/game/Game")).default }),
           },
           {
             path: "how-to-play/",
-            element: <HowToPlay />,
+            lazy: async () => ({ Component: (await import("./routes/HowToPlay")).default }),
           },
         ]},
       {
         path: "leaderboard/",
-        element: <Leaderboard />,
+        lazy: async () => ({ Component: (await import("./routes/Leaderboard")).default }),
       },
       {
         path: "players/:name",
-        element: <PlayerStats />,
+        lazy: async () => ({ Component: (await import("./routes/PlayerStats")).default }),
       },
       {
         path: "/",

@@ -1,14 +1,14 @@
 import React from "react";
-import logo from "../assets/pig-0.png";
+import logo from "../assets/pig-0.webp";
 import { Link } from "react-router-dom";
 
 export default function Home() {
   return (
-    <section className=" w-full h-screen flex flex-col justify-center items-center">
+    <section className=" w-full min-h-screen py-8 px-4 flex flex-col justify-center items-center">
       <figure>
-        <img src={logo} alt="" width={400} />
+        <img src={logo} alt="" className="w-48 sm:w-72 lg:w-[400px] max-w-full" />
       </figure>
-      <div className="flex flex-col gap-8 text-[#F9F7E8] text-center">
+      <div className="flex flex-col gap-6 sm:gap-8 text-[#F9F7E8] text-center w-full max-w-sm">
         <h1 className="pri-font text-3xl sm:text-5xl lg:text-6xl ">
           Greedy Pig
         </h1>

@@ -1,5 +1,5 @@
 import React from "react";
-import logo from "../assets/pig-0.png";
+import logo from "../assets/pig-0.webp";
 import { Link } from "react-router-dom";
 
 export default function Navbar() {
