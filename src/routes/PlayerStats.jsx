@@ -2,15 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AiFillHome } from "react-icons/ai";
 import { gameApi } from "src/api/gameApi";
-import logo from "src/assets/pig-0.png";
+import logo from "src/assets/pig-0.webp";
 
 const formatDate = (iso) =>
   new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 function StatCard({ label, value }) {
   return (
-    <div className="bg-[#ffffff10] border rounded-lg px-4 py-5 text-center">
-      <p className="pri-font text-3xl lg:text-4xl">{value}</p>
+    <div className="bg-[#ffffff10] border rounded-lg px-3 sm:px-4 py-4 sm:py-5 text-center">
+      <p className="pri-font text-2xl sm:text-3xl lg:text-4xl">{value}</p>
       <p className="text-sm lg:text-base opacity-70">{label}</p>
     </div>
   );
@@ -49,8 +49,8 @@ export default function PlayerStats() {
   }, [name, attempt]);
 
   return (
-    <div className="p-[5%] pt-24 flex flex-col relative w-full items-center text-white">
-      <nav className="fixed top-0 left-0 w-full flex justify-between p-[5%] z-20">
+    <div className="px-4 sm:px-[5%] pb-10 pt-20 sm:pt-24 flex flex-col relative w-full items-center text-white">
+      <nav className="fixed top-0 left-0 w-full flex justify-between p-4 sm:p-[5%] z-20">
         <Link
           to="/leaderboard"
           className="bg-[#ffffff10] hover:bg-[#ffffff40] duration-300 text-white px-4 h-[48px] border rounded-full flex items-center font-bold"
@@ -66,11 +66,11 @@ export default function PlayerStats() {
         </Link>
       </nav>
 
-      <div className="flex flex-col items-center gap-6 w-full md:max-w-[70%] xl:max-w-[50%]">
+      <div className="flex flex-col items-center gap-4 sm:gap-6 w-full max-w-3xl">
         <figure>
-          <img src={logo} alt="" width={140} />
+          <img src={logo} alt="" className="w-24 sm:w-36" />
         </figure>
-        <h1 className="pri-font text-3xl lg:text-5xl text-center break-all">{player?.name || name}</h1>
+        <h1 className="pri-font text-3xl sm:text-4xl lg:text-5xl text-center break-words max-w-full">{player?.name || name}</h1>
 
         {status === "loading" && (
           <p role="status" className="py-8">
@@ -117,12 +117,12 @@ export default function PlayerStats() {
               <ul className="space-y-3">
                 {history.map((h) => (
                   <li key={h.game_id} className="bg-[#ffffff10] border rounded-lg px-4 py-4 flex flex-col gap-1">
-                    <div className="flex justify-between items-center gap-4">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 sm:gap-4">
                       <span className="font-bold text-lg">
                         {h.won ? "Won" : "Lost"} with {h.final_score}
                         <span className="opacity-70 font-normal"> / {h.target_score}</span>
                       </span>
-                      <span className="text-sm opacity-70 whitespace-nowrap">{formatDate(h.played_at)}</span>
+                      <span className="text-sm opacity-70 sm:whitespace-nowrap">{formatDate(h.played_at)}</span>
                     </div>
                     <p className="text-sm sm:text-base opacity-80">
                       vs{" "}
